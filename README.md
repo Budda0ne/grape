@@ -801,6 +801,7 @@ Grape allows you to access only the parameters that have been declared by your `
 
   * Filter out the params that have been passed, but are not allowed.
   * Include any optional params that are declared but not passed.
+  * Perform any parameter renaming on the resulting hash.
 
 Consider the following API endpoint:
 
@@ -995,8 +996,10 @@ curl -X POST -H "Content-Type: application/json" localhost:9292/users/signup -d 
 ````json
 {
   "declared_params": {
-    "first_name": "first name",
-    "last_name": null
+    "user": {
+      "first_name": "first name",
+      "last_name": null
+    }
   }
 }
 ````
@@ -1529,6 +1532,14 @@ end
 ```
 
 While Procs are convenient for single cases, consider using [Custom Validators](#custom-validators) in cases where a validation is used more than once.
+
+Note that [allow_blank](#allow_blank) validator applies while using `:values`. In the following example the absence of `:allow_blank` does not prevent `:state` from receiving blank values because `:allow_blank` defaults to `true`.
+
+```ruby
+params do
+  requires :state, type: Symbol, values: [:active, :inactive]
+end
+```
 
 #### `except_values`
 
@@ -3642,6 +3653,14 @@ You can access the controller params, headers, and helpers through the context w
 Note that when you're using Grape mounted on Rails you don't have to use Rails middleware because it's already included into your middleware stack.
 You only have to implement the helpers to access the specific `env` variable.
 
+If you are using a custom application that is inherited from `Rails::Application` and need to insert a new middleware among the ones initiated via Rails, you will need to register it manually in your custom application class.
+
+```ruby
+class Company::Application < Rails::Application
+  config.middleware.insert_before(Rack::Attack, Middleware::ApiLogger)
+end
+```
+
 ### Remote IP
 
 By default you can access remote IP with `request.ip`. This is the remote IP address implemented by Rack. Sometimes it is desirable to get the remote IP [Rails-style](http://stackoverflow.com/questions/10997005/whats-the-difference-between-request-remote-ip-and-request-ip-in-rails) with `ActionDispatch::RemoteIp`.
@@ -3946,6 +3965,7 @@ Grape integrates with following third-party tools:
 * **[Skylight](https://www.skylight.io/)** - [skylight](https://github.com/skylightio/skylight-ruby) gem, [documentation](https://docs.skylight.io/grape/)
 * **[AppSignal](https://www.appsignal.com)** - [appsignal-ruby](https://github.com/appsignal/appsignal-ruby) gem, [documentation](http://docs.appsignal.com/getting-started/supported-frameworks.html#grape)
 * **[ElasticAPM](https://www.elastic.co/products/apm)** - [elastic-apm](https://github.com/elastic/apm-agent-ruby) gem, [documentation](https://www.elastic.co/guide/en/apm/agent/ruby/3.x/getting-started-rack.html#getting-started-grape)
+* **[Datadog APM](https://docs.datadoghq.com/tracing/)** - [ddtrace](https://github.com/datadog/dd-trace-rb) gem, [documentation](https://docs.datadoghq.com/tracing/setup_overview/setup/ruby/#grape)
 
 ## Contributing to Grape
 
