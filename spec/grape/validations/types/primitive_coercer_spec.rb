@@ -1,18 +1,16 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
-
 describe Grape::Validations::Types::PrimitiveCoercer do
-  let(:strict) { false }
-
   subject { described_class.new(type, strict) }
+
+  let(:strict) { false }
 
   describe '#call' do
     context 'BigDecimal' do
       let(:type) { BigDecimal }
 
       it 'coerces to BigDecimal' do
-        expect(subject.call(5)).to eq(BigDecimal(5))
+        expect(subject.call(5)).to eq(BigDecimal('5'))
       end
 
       it 'coerces an empty string to nil' do
@@ -25,13 +23,13 @@ describe Grape::Validations::Types::PrimitiveCoercer do
 
       [true, 'true', 1].each do |val|
         it "coerces '#{val}' to true" do
-          expect(subject.call(val)).to eq(true)
+          expect(subject.call(val)).to be(true)
         end
       end
 
       [false, 'false', 0].each do |val|
         it "coerces '#{val}' to false" do
-          expect(subject.call(val)).to eq(false)
+          expect(subject.call(val)).to be(false)
         end
       end
 
@@ -66,6 +64,10 @@ describe Grape::Validations::Types::PrimitiveCoercer do
       it 'coerces an empty string to nil' do
         expect(subject.call('')).to be_nil
       end
+
+      it 'accepts non-nil value' do
+        expect(subject.call(42)).to be_a(Integer)
+      end
     end
 
     context 'Numeric' do
@@ -73,6 +75,10 @@ describe Grape::Validations::Types::PrimitiveCoercer do
 
       it 'coerces an empty string to nil' do
         expect(subject.call('')).to be_nil
+      end
+
+      it 'accepts a non-nil value' do
+        expect(subject.call(42)).to be_a(Numeric) # in fact Integer
       end
     end
 
@@ -104,6 +110,15 @@ describe Grape::Validations::Types::PrimitiveCoercer do
       end
     end
 
+    context 'a type unknown in Dry-types' do
+      let(:type) { Complex }
+
+      it 'raises error on init' do
+        expect(DryTypes::Params.constants).not_to include(type.name.to_sym)
+        expect { subject }.to raise_error(/type Complex should support coercion/)
+      end
+    end
+
     context 'the strict mode' do
       let(:strict) { true }
 
@@ -115,7 +130,7 @@ describe Grape::Validations::Types::PrimitiveCoercer do
         end
 
         it 'returns a value as it is when the given value is Boolean' do
-          expect(subject.call(true)).to eq(true)
+          expect(subject.call(true)).to be(true)
         end
       end
 
@@ -127,7 +142,7 @@ describe Grape::Validations::Types::PrimitiveCoercer do
         end
 
         it 'returns a value as it is when the given value is BigDecimal' do
-          expect(subject.call(BigDecimal(0))).to eq(BigDecimal(0))
+          expect(subject.call(BigDecimal('0'))).to eq(BigDecimal('0'))
         end
       end
     end

@@ -45,8 +45,8 @@ module Grape
         @others = []
       end
 
-      def each
-        @middlewares.each { |x| yield x }
+      def each(&block)
+        @middlewares.each(&block)
       end
 
       def size
@@ -57,8 +57,8 @@ module Grape
         middlewares.last
       end
 
-      def [](i)
-        middlewares[i]
+      def [](index)
+        middlewares[index]
       end
 
       def insert(index, *args, &block)
@@ -76,11 +76,10 @@ module Grape
       end
       ruby2_keywords :insert_after if respond_to?(:ruby2_keywords, true)
 
-      def use(*args, &block)
-        middleware = self.class::Middleware.new(*args, &block)
+      def use(...)
+        middleware = self.class::Middleware.new(...)
         middlewares.push(middleware)
       end
-      ruby2_keywords :use if respond_to?(:ruby2_keywords, true)
 
       def merge_with(middleware_specs)
         middleware_specs.each do |operation, *args|
@@ -95,7 +94,7 @@ module Grape
 
       # @return [Rack::Builder] the builder object with our middlewares applied
       def build(builder = Rack::Builder.new)
-        others.shift(others.size).each(&method(:merge_with))
+        others.shift(others.size).each { |m| merge_with(m) }
         middlewares.each do |m|
           m.use_in(builder)
         end

@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'json'
-
 module Grape
   module Validations
     module Types
@@ -22,6 +20,7 @@ module Grape
 
             # Allow nulls and blank strings
             return if input.nil? || input.match?(/^\s*$/)
+
             JSON.parse(input, symbolize_names: true)
           end
 
@@ -41,7 +40,7 @@ module Grape
           # @param value [Object] result of {#parse}
           # @return [true,false]
           def coerced_collection?(value)
-            value.is_a?(::Array) && value.all? { |i| i.is_a? ::Hash }
+            value.is_a?(::Array) && value.all?(::Hash)
           end
         end
       end

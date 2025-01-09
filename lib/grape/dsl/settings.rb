@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'active_support/concern'
-
 module Grape
   module DSL
     # Keeps track of settings (implemented as key-value pairs, grouped by
@@ -103,19 +101,17 @@ module Grape
       def namespace_stackable_with_hash(key)
         settings = get_or_set :namespace_stackable, key, nil
         return if settings.blank?
+
         settings.each_with_object({}) { |value, result| result.deep_merge!(value) }
       end
 
       def namespace_reverse_stackable_with_hash(key)
         settings = get_or_set :namespace_reverse_stackable, key, nil
         return if settings.blank?
-        result = {}
-        settings.each do |setting|
-          setting.each do |field, value|
-            result[field] ||= value
-          end
+
+        settings.each_with_object({}) do |setting, result|
+          result.merge!(setting) { |_k, s1, _s2| s1 }
         end
-        result
       end
 
       # (see #unset_global_setting)
@@ -154,10 +150,10 @@ module Grape
 
       # Execute the block within a context where our inheritable settings are forked
       # to a new copy (see #namespace_start).
-      def within_namespace(&_block)
+      def within_namespace(&block)
         namespace_start
 
-        result = yield if block_given?
+        result = yield if block
 
         namespace_end
         reset_validations!
@@ -175,9 +171,7 @@ module Grape
           # +inheritable_setting+, however, it doesn't contain any user-defined settings.
           # Otherwise, it would lead to an extra instance of +Grape::Util::InheritableSetting+
           # in the chain for every endpoint.
-          if defined?(superclass) && superclass.respond_to?(:inheritable_setting) && superclass != Grape::API::Instance
-            setting.inherit_from superclass.inheritable_setting
-          end
+          setting.inherit_from superclass.inheritable_setting if defined?(superclass) && superclass.respond_to?(:inheritable_setting) && superclass != Grape::API::Instance
         end
       end
     end

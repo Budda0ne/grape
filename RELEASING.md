@@ -12,18 +12,13 @@ bundle install
 rake
 ```
 
-Check that the last build succeeded in [Travis CI](https://travis-ci.org/ruby-grape/grape) for all supported platforms.
+Double-check that the [last build succeeded](https://github.com/ruby-grape/grape/actions) for all supported platforms.
 
 Those with r/w permissions to the [master Grape repository](https://github.com/ruby-grape/grape) generally have large Grape-based projects. Point one to Grape HEAD and run all your API tests to catch any obvious regressions.
 
 ```
 gem grape, github: 'ruby-grape/grape'
 ```
-
-Increment the version, modify [lib/grape/version.rb](lib/grape/version.rb).
-
-*  Increment the third number if the release has bug fixes and/or very minor features, only (eg. change `0.5.1` to `0.5.2`).
-*  Increment the second number if the release contains major features or breaking API changes (eg. change `0.5.1` to `0.6.0`).
 
 Modify the "Stable Release" section in [README.md](README.md). Change the text to reflect that this is going to be the documentation for a stable release. Remove references to the previous release of Grape. Keep the file open, you'll have to undo this change after the release.
 
@@ -44,7 +39,7 @@ Remove the line with "Your contribution here.", since there will be no more cont
 Commit your changes.
 
 ```
-git add README.md CHANGELOG.md lib/grape/version.rb
+git add README.md CHANGELOG.md
 git commit -m "Preparing for release, 0.6.0."
 git push origin master
 ```

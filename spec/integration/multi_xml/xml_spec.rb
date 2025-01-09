@@ -1,9 +1,7 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
+describe Grape::Xml, if: defined?(MultiXml) do
+  subject { described_class }
 
-describe Grape::Xml do
-  it 'uses multi_xml' do
-    expect(Grape::Xml).to eq(::MultiXml)
-  end
+  it { is_expected.to eq(MultiXml) }
 end

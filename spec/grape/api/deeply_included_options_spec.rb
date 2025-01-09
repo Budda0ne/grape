@@ -1,23 +1,17 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
-
-module DeeplyIncludedOptionsSpec
-  module Defaults
-    extend ActiveSupport::Concern
-    included do
-      format :json
+describe Grape::API do
+  let(:app) do
+    main_api = api
+    Class.new(Grape::API) do
+      mount main_api
     end
   end
 
-  module Admin
-    module Defaults
-      extend ActiveSupport::Concern
-      include DeeplyIncludedOptionsSpec::Defaults
-    end
-
-    class Users < Grape::API
-      include DeeplyIncludedOptionsSpec::Admin::Defaults
+  let(:api) do
+    deeply_included_options = options
+    Class.new(Grape::API) do
+      include deeply_included_options
 
       resource :users do
         get do
@@ -27,32 +21,37 @@ module DeeplyIncludedOptionsSpec
     end
   end
 
-  class Main < Grape::API
-    mount DeeplyIncludedOptionsSpec::Admin::Users
+  let(:options) do
+    deep_included_options_default = default
+    Module.new do
+      extend ActiveSupport::Concern
+      include deep_included_options_default
+    end
   end
-end
 
-describe Grape::API do
-  subject { DeeplyIncludedOptionsSpec::Main }
-
-  def app
-    subject
+  let(:default) do
+    Module.new do
+      extend ActiveSupport::Concern
+      included do
+        format :json
+      end
+    end
   end
 
   it 'works for unspecified format' do
     get '/users'
-    expect(last_response.status).to eql 200
+    expect(last_response.status).to be 200
     expect(last_response.content_type).to eql 'application/json'
   end
 
   it 'works for specified format' do
     get '/users.json'
-    expect(last_response.status).to eql 200
+    expect(last_response.status).to be 200
     expect(last_response.content_type).to eql 'application/json'
   end
 
   it "doesn't work for format different than specified" do
     get '/users.txt'
-    expect(last_response.status).to eql 404
+    expect(last_response.status).to be 404
   end
 end

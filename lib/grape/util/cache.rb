@@ -1,7 +1,4 @@
-# frozen_String_literal: true
-
-require 'singleton'
-require 'forwardable'
+# frozen_string_literal: true
 
 module Grape
   module Util

@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'active_support/concern'
-
 module Grape
   module DSL
     module Helpers
@@ -35,18 +33,22 @@ module Grape
         #     end
         #
         def helpers(*new_modules, &block)
-          include_new_modules(new_modules) if new_modules.any?
-          include_block(block) if block_given?
-          include_all_in_scope if !block_given? && new_modules.empty?
+          include_new_modules(new_modules)
+          include_block(block)
+          include_all_in_scope if !block && new_modules.empty?
         end
 
         protected
 
         def include_new_modules(modules)
+          return if modules.empty?
+
           modules.each { |mod| make_inclusion(mod) }
         end
 
         def include_block(block)
+          return unless block
+
           Module.new.tap do |mod|
             make_inclusion(mod) { mod.class_eval(&block) }
           end
@@ -60,19 +62,20 @@ module Grape
 
         def include_all_in_scope
           Module.new.tap do |mod|
-            namespace_stackable(:helpers).each { |mod_to_include| mod.send :include, mod_to_include }
+            namespace_stackable(:helpers).each { |mod_to_include| mod.include mod_to_include }
             change!
           end
         end
 
         def define_boolean_in_mod(mod)
           return if defined? mod::Boolean
-          mod.const_set('Boolean', Grape::API::Boolean)
+
+          mod.const_set(:Boolean, Grape::API::Boolean)
         end
 
-        def inject_api_helpers_to_mod(mod, &_block)
+        def inject_api_helpers_to_mod(mod, &block)
           mod.extend(BaseHelper) unless mod.is_a?(BaseHelper)
-          yield if block_given?
+          yield if block
           mod.api_changed(self)
         end
       end
@@ -96,6 +99,7 @@ module Grape
 
         def process_named_params
           return unless instance_variable_defined?(:@named_params) && @named_params && @named_params.any?
+
           api.namespace_stackable(:named_params, @named_params)
         end
       end

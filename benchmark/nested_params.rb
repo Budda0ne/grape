@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+$LOAD_PATH.unshift(File.join(File.dirname(__FILE__), '..', 'lib'))
 require 'grape'
 require 'benchmark/ips'
 
@@ -20,7 +21,7 @@ class API < Grape::API
 end
 
 options = {
-  method: 'POST',
+  method: Rack::POST,
   params: {
     address: {
       street: 'Alexis Pl.',

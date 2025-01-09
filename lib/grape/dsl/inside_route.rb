@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-require 'active_support/concern'
-require 'grape/dsl/headers'
-
 module Grape
   module DSL
     module InsideRoute
@@ -29,14 +26,20 @@ module Grape
       # has completed
       module PostBeforeFilter
         def declared(passed_params, options = {}, declared_params = nil, params_nested_path = [])
-          options = options.reverse_merge(include_missing: true, include_parent_namespaces: true)
-          declared_params ||= optioned_declared_params(**options)
+          options.reverse_merge!(include_missing: true, include_parent_namespaces: true, evaluate_given: false)
+          declared_params ||= optioned_declared_params(options[:include_parent_namespaces])
 
-          if passed_params.is_a?(Array)
-            declared_array(passed_params, options, declared_params, params_nested_path)
-          else
-            declared_hash(passed_params, options, declared_params, params_nested_path)
+          res = if passed_params.is_a?(Array)
+                  declared_array(passed_params, options, declared_params, params_nested_path)
+                else
+                  declared_hash(passed_params, options, declared_params, params_nested_path)
+                end
+
+          if (key_maps = namespace_stackable(:contract_key_map))
+            key_maps.each { |key_map| key_map.write(passed_params, res) }
           end
+
+          res
         end
 
         private
@@ -48,36 +51,46 @@ module Grape
         end
 
         def declared_hash(passed_params, options, declared_params, params_nested_path)
-          declared_params.each_with_object(passed_params.class.new) do |declared_param, memo|
-            if declared_param.is_a?(Hash)
-              declared_param.each_pair do |declared_parent_param, declared_children_params|
-                params_nested_path_dup = params_nested_path.dup
-                params_nested_path_dup << declared_parent_param.to_s
-                next unless options[:include_missing] || passed_params.key?(declared_parent_param)
+          declared_params.each_with_object(passed_params.class.new) do |declared_param_attr, memo|
+            next if options[:evaluate_given] && !declared_param_attr.scope.attr_meets_dependency?(passed_params)
 
-                passed_children_params = passed_params[declared_parent_param] || passed_params.class.new
-                memo_key = optioned_param_key(declared_parent_param, options)
+            declared_hash_attr(passed_params, options, declared_param_attr.key, params_nested_path, memo)
+          end
+        end
 
-                memo[memo_key] = handle_passed_param(params_nested_path_dup, passed_children_params.any?) do
-                  declared(passed_children_params, options, declared_children_params, params_nested_path_dup)
-                end
-              end
-            else
-              # If it is not a Hash then it does not have children.
-              # Find its value or set it to nil.
-              has_renaming = route_setting(:renamed_params) && route_setting(:renamed_params).find { |current| current[declared_param] }
-              param_renaming = has_renaming[declared_param] if has_renaming
-
-              next unless options[:include_missing] || passed_params.key?(declared_param) || (param_renaming && passed_params.key?(param_renaming))
-
-              memo_key = optioned_param_key(param_renaming || declared_param, options)
-              passed_param = passed_params[param_renaming || declared_param]
-
+        def declared_hash_attr(passed_params, options, declared_param, params_nested_path, memo)
+          renamed_params = route_setting(:renamed_params) || {}
+          if declared_param.is_a?(Hash)
+            declared_param.each_pair do |declared_parent_param, declared_children_params|
               params_nested_path_dup = params_nested_path.dup
-              params_nested_path_dup << declared_param.to_s
-              memo[memo_key] = passed_param || handle_passed_param(params_nested_path_dup) do
-                passed_param
+              params_nested_path_dup << declared_parent_param.to_s
+              next unless options[:include_missing] || passed_params.key?(declared_parent_param)
+
+              rename_path = params_nested_path + [declared_parent_param.to_s]
+              renamed_param_name = renamed_params[rename_path]
+
+              memo_key = optioned_param_key(renamed_param_name || declared_parent_param, options)
+              passed_children_params = passed_params[declared_parent_param] || passed_params.class.new
+
+              memo[memo_key] = handle_passed_param(params_nested_path_dup, passed_children_params.any?) do
+                declared(passed_children_params, options, declared_children_params, params_nested_path_dup)
               end
+            end
+          else
+            # If it is not a Hash then it does not have children.
+            # Find its value or set it to nil.
+            return unless options[:include_missing] || passed_params.key?(declared_param)
+
+            rename_path = params_nested_path + [declared_param.to_s]
+            renamed_param_name = renamed_params[rename_path]
+
+            memo_key = optioned_param_key(renamed_param_name || declared_param, options)
+            passed_param = passed_params[declared_param]
+
+            params_nested_path_dup = params_nested_path.dup
+            params_nested_path_dup << declared_param.to_s
+            memo[memo_key] = passed_param || handle_passed_param(params_nested_path_dup) do
+              passed_param
             end
           end
         end
@@ -86,15 +99,15 @@ module Grape
           return yield if has_passed_children
 
           key = params_nested_path[0]
-          key += '[' + params_nested_path[1..-1].join('][') + ']' if params_nested_path.size > 1
+          key += "[#{params_nested_path[1..].join('][')}]" if params_nested_path.size > 1
 
           route_options_params = options[:route_options][:params] || {}
           type = route_options_params.dig(key, :type)
-          has_children = route_options_params.keys.any? { |k| k != key && k.start_with?(key) }
+          has_children = route_options_params.keys.any? { |k| k != key && k.start_with?("#{key}[") }
 
           if type == 'Hash' && !has_children
             {}
-          elsif type == 'Array' || type&.start_with?('[') && !type&.include?(',')
+          elsif type == 'Array' || (type&.start_with?('[') && type&.exclude?(','))
             []
           elsif type == 'Set' || type&.start_with?('#<Set')
             Set.new
@@ -107,8 +120,8 @@ module Grape
           options[:stringify] ? declared_param.to_s : declared_param.to_sym
         end
 
-        def optioned_declared_params(**options)
-          declared_params = if options[:include_parent_namespaces]
+        def optioned_declared_params(include_parent_namespaces)
+          declared_params = if include_parent_namespaces
                               # Declared params including parent namespaces
                               route_setting(:declared_params)
                             else
@@ -117,6 +130,7 @@ module Grape
                             end
 
           raise ArgumentError, 'Tried to filter for declared parameters but none exist.' unless declared_params
+
           declared_params
         end
       end
@@ -149,33 +163,57 @@ module Grape
       # end user with the specified message.
       #
       # @param message [String] The message to display.
-      # @param status [Integer] the HTTP Status Code. Defaults to default_error_status, 500 if not set.
+      # @param status [Integer] The HTTP Status Code. Defaults to default_error_status, 500 if not set.
       # @param additional_headers [Hash] Addtional headers for the response.
-      def error!(message, status = nil, additional_headers = nil)
-        self.status(status || namespace_inheritable(:default_error_status))
+      # @param backtrace [Array<String>] The backtrace of the exception that caused the error.
+      # @param original_exception [Exception] The original exception that caused the error.
+      def error!(message, status = nil, additional_headers = nil, backtrace = nil, original_exception = nil)
+        status = self.status(status || namespace_inheritable(:default_error_status))
         headers = additional_headers.present? ? header.merge(additional_headers) : header
-        throw :error, message: message, status: self.status, headers: headers
+        throw :error,
+              message: message,
+              status: status,
+              headers: headers,
+              backtrace: backtrace,
+              original_exception: original_exception
+      end
+
+      # Creates a Rack response based on the provided message, status, and headers.
+      # The content type in the headers is set to the default content type unless provided.
+      # The message is HTML-escaped if the content type is 'text/html'.
+      #
+      # @param message [String] The content of the response.
+      # @param status [Integer] The HTTP status code.
+      # @params headers [Hash] (optional) Headers for the response
+      #                      (default: {Rack::CONTENT_TYPE => content_type}).
+      #
+      # Returns:
+      # A Rack::Response object containing the specified message, status, and headers.
+      #
+      def rack_response(message, status = 200, headers = { Rack::CONTENT_TYPE => content_type })
+        Grape.deprecator.warn('The rack_response method has been deprecated, use error! instead.')
+        message = Rack::Utils.escape_html(message) if headers[Rack::CONTENT_TYPE] == 'text/html'
+        Rack::Response.new(Array.wrap(message), Rack::Utils.status_code(status), headers)
       end
 
       # Redirect to a new url.
       #
       # @param url [String] The url to be redirect.
-      # @param options [Hash] The options used when redirect.
-      #                       :permanent, default false.
-      #                       :body, default a short message including the URL.
-      def redirect(url, permanent: false, body: nil, **_options)
+      # @param permanent [Boolean] default false.
+      # @param body default a short message including the URL.
+      def redirect(url, permanent: false, body: nil)
         body_message = body
         if permanent
           status 301
           body_message ||= "This resource has been moved permanently to #{url}."
-        elsif env[Grape::Http::Headers::HTTP_VERSION] == 'HTTP/1.1' && request.request_method.to_s.upcase != Grape::Http::Headers::GET
+        elsif http_version == 'HTTP/1.1' && !request.get?
           status 303
           body_message ||= "An alternate resource is located at #{url}."
         else
           status 302
           body_message ||= "This resource has been moved temporarily to #{url}."
         end
-        header 'Location', url
+        header Grape::Http::Headers::LOCATION, url
         content_type 'text/plain'
         body body_message
       end
@@ -187,15 +225,16 @@ module Grape
         case status
         when Symbol
           raise ArgumentError, "Status code :#{status} is invalid." unless Rack::Utils::SYMBOL_TO_STATUS_CODE.key?(status)
+
           @status = Rack::Utils.status_code(status)
         when Integer
           @status = status
         when nil
           return @status if instance_variable_defined?(:@status) && @status
-          case request.request_method.to_s.upcase
-          when Grape::Http::Headers::POST
+
+          if request.post?
             201
-          when Grape::Http::Headers::DELETE
+          elsif request.delete?
             if instance_variable_defined?(:@body) && @body.present?
               200
             else
@@ -212,9 +251,9 @@ module Grape
       # Set response content-type
       def content_type(val = nil)
         if val
-          header(Grape::Http::Headers::CONTENT_TYPE, val)
+          header(Rack::CONTENT_TYPE, val)
         else
-          header[Grape::Http::Headers::CONTENT_TYPE]
+          header[Rack::CONTENT_TYPE]
         end
       end
 
@@ -265,20 +304,6 @@ module Grape
         body false
       end
 
-      # Deprecated method to send files to the client. Use `sendfile` or `stream`
-      def file(value = nil)
-        if value.is_a?(String)
-          warn '[DEPRECATION] Use sendfile or stream to send files.'
-          sendfile(value)
-        elsif !value.is_a?(NilClass)
-          warn '[DEPRECATION] Use stream to use a Stream object.'
-          stream(value)
-        else
-          warn '[DEPRECATION] Use sendfile or stream to send files.'
-          sendfile
-        end
-      end
-
       # Allows you to send a file to the client via sendfile.
       #
       # @example
@@ -316,9 +341,9 @@ module Grape
       def stream(value = nil)
         return if value.nil? && @stream.nil?
 
-        header 'Content-Length', nil
-        header 'Transfer-Encoding', nil
-        header 'Cache-Control', 'no-cache' # Skips ETag generation (reading the response up front)
+        header Rack::CONTENT_LENGTH, nil
+        header Grape::Http::Headers::TRANSFER_ENCODING, nil
+        header Rack::CACHE_CONTROL, 'no-cache' # Skips ETag generation (reading the response up front)
         if value.is_a?(String)
           file_body = Grape::ServeStream::FileBody.new(value)
           @stream = Grape::ServeStream::StreamResponse.new(file_body)
@@ -369,6 +394,7 @@ module Grape
           representation = (body || {}).merge(key => representation)
         elsif entity_class.present? && body
           raise ArgumentError, "Representation of type #{representation.class} cannot be merged." unless representation.respond_to?(:merge)
+
           representation = body.merge(representation)
         end
 
@@ -420,8 +446,20 @@ module Grape
       #   the given entity_class.
       def entity_representation_for(entity_class, object, options)
         embeds = { env: env }
-        embeds[:version] = env[Grape::Env::API_VERSION] if env[Grape::Env::API_VERSION]
+        embeds[:version] = env[Grape::Env::API_VERSION] if env.key?(Grape::Env::API_VERSION)
         entity_class.represent(object, **embeds.merge(options))
+      end
+
+      def http_version
+        env.fetch(Grape::Http::Headers::HTTP_VERSION) { env[Rack::SERVER_PROTOCOL] }
+      end
+
+      def api_format(format)
+        env[Grape::Env::API_FORMAT] = format
+      end
+
+      def context
+        self
       end
     end
   end

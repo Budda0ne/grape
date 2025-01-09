@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-require 'rack/auth/basic'
-require 'active_support/concern'
-
 module Grape
   module Middleware
     module Auth
@@ -32,7 +29,13 @@ module Grape
 
           def http_digest(options = {}, &block)
             options[:realm] ||= 'API Authorization'
-            options[:opaque] ||= 'secret'
+
+            if options[:realm].respond_to?(:values_at)
+              options[:realm][:opaque] ||= 'secret'
+            else
+              options[:opaque] ||= 'secret'
+            end
+
             auth :http_digest, options, &block
           end
         end

@@ -1,25 +1,18 @@
 # frozen_string_literal: true
 
-require 'grape/exceptions/base'
-
 module Grape
   module Exceptions
-    class ValidationErrors < Grape::Exceptions::Base
+    class ValidationErrors < Base
       ERRORS_FORMAT_KEY = 'grape.errors.format'
-      DEFAULT_ERRORS_FORMAT = '%{attributes} %{message}'
+      DEFAULT_ERRORS_FORMAT = '%<attributes>s %<message>s'
 
       include Enumerable
 
       attr_reader :errors
 
-      def initialize(errors: [], headers: {}, **_options)
-        @errors = {}
-        errors.each do |validation_error|
-          @errors[validation_error.params] ||= []
-          @errors[validation_error.params] << validation_error
-        end
-
-        super message: full_messages.join(', '), status: 400, headers: headers
+      def initialize(errors: [], headers: {})
+        @errors = errors.group_by(&:params)
+        super(message: full_messages.join(', '), status: 400, headers: headers)
       end
 
       def each

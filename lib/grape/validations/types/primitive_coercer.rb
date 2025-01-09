@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require_relative 'dry_type_coercer'
-
 module Grape
   module Validations
     module Types
@@ -11,15 +9,21 @@ module Grape
       class PrimitiveCoercer < DryTypeCoercer
         MAPPING = {
           Grape::API::Boolean => DryTypes::Params::Bool,
-          BigDecimal          => DryTypes::Params::Decimal,
+          BigDecimal => DryTypes::Params::Decimal,
+          Numeric => DryTypes::Params::Integer | DryTypes::Params::Float | DryTypes::Params::Decimal,
+          TrueClass => DryTypes::Params::Bool.constrained(eql: true),
+          FalseClass => DryTypes::Params::Bool.constrained(eql: false),
 
           # unfortunately, a +Params+ scope doesn't contain String
-          String              => DryTypes::Coercible::String
+          String => DryTypes::Coercible::String
         }.freeze
 
         STRICT_MAPPING = {
           Grape::API::Boolean => DryTypes::Strict::Bool,
-          BigDecimal          => DryTypes::Strict::Decimal
+          BigDecimal => DryTypes::Strict::Decimal,
+          Numeric => DryTypes::Strict::Integer | DryTypes::Strict::Float | DryTypes::Strict::Decimal,
+          TrueClass => DryTypes::Strict::Bool.constrained(eql: true),
+          FalseClass => DryTypes::Strict::Bool.constrained(eql: false)
         }.freeze
 
         def initialize(type, strict = false)
@@ -27,11 +31,13 @@ module Grape
 
           @type = type
 
-          @coercer = if strict
-                       STRICT_MAPPING.fetch(type) { scope.const_get(type.name) }
-                     else
-                       MAPPING.fetch(type) { scope.const_get(type.name) }
-                     end
+          @coercer = (strict ? STRICT_MAPPING : MAPPING).fetch(type) do
+            scope.const_get(type.name, false)
+          rescue NameError
+            raise ArgumentError, "type #{type} should support coercion via `[]`" unless type.respond_to?(:[])
+
+            type
+          end
         end
 
         def call(val)

@@ -1,73 +1,81 @@
----
 name: test
-on:
-  push:
-    branches:
-      - "*"
-  pull_request:
-    branches:
-      - "*"
+
+on: [push, pull_request]
+
 jobs:
   lint:
     name: RuboCop
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
+
     - name: Set up Ruby
       uses: ruby/setup-ruby@v1
       with:
-        ruby-version: 2.7
+        ruby-version: 3.4
         bundler-cache: true
+        rubygems: latest
+
     - name: Run RuboCop
       run: bundle exec rubocop
+
   test:
     strategy:
       fail-fast: false
       matrix:
-        ruby:
-          - 2.5
-          - 2.6
-          - 2.7
-          - "3.0"
-        gemfile:
-          - Gemfile
-          - gemfiles/rack1.gemfile
-          - gemfiles/rack2.gemfile
-          - gemfiles/rack2_2.gemfile
-          - gemfiles/rack_edge.gemfile
-          - gemfiles/rails_5.gemfile
-          - gemfiles/rails_6.gemfile
-          - gemfiles/rails_6_1.gemfile
-        experimental: [false]
+        ruby: ['2.7', '3.0', '3.1', '3.2', '3.3', '3.4']
+        gemfile: [Gemfile, gemfiles/rack_2_0.gemfile, gemfiles/rack_3_0.gemfile, gemfiles/rack_3_1.gemfile, gemfiles/rails_6_1.gemfile, gemfiles/rails_7_0.gemfile, gemfiles/rails_7_1.gemfile, gemfiles/rails_7_2.gemfile, gemfiles/rails_8_0.gemfile]
+        specs: ['spec --exclude-pattern=spec/integration/**/*_spec.rb']
         include:
-          - ruby: "3.0"
-            gemfile: 'gemfiles/multi_json.gemfile'
-            experimental: false
-          - ruby: "3.0"
-            gemfile: 'gemfiles/multi_xml.gemfile'
-            experimental: false
-          - ruby: 2.7
-            gemfile: 'gemfiles/multi_json.gemfile'
-            experimental: false
-          - ruby: 2.7
-            gemfile: 'gemfiles/multi_xml.gemfile'
-            experimental: false
-          - ruby: 2.7
-            gemfile: 'gemfiles/rails_edge.gemfile'
-            experimental: false
-          - ruby: "ruby-head"
-            experimental: true
-          - ruby: "truffleruby-head"
-            experimental: true
-          - ruby: "jruby-head"
-            experimental: true
-    runs-on: ubuntu-20.04
-    continue-on-error: ${{ matrix.experimental }}
+          - ruby: '2.7'
+            gemfile: gemfiles/multi_json.gemfile
+            specs: 'spec/integration/multi_json'
+          - ruby: '2.7'
+            gemfile: gemfiles/multi_xml.gemfile
+            specs: 'spec/integration/multi_xml'
+          - ruby: '2.7'
+            gemfile: gemfiles/rack_3_0.gemfile
+            specs: 'spec/integration/rack_3_0'
+          - ruby: '3.3'
+            gemfile: gemfiles/grape_entity.gemfile
+            specs: 'spec/integration/grape_entity'
+          - ruby: '3.3'
+            gemfile: gemfiles/hashie.gemfile
+            specs: 'spec/integration/hashie'
+          - ruby: '3.3'
+            gemfile: gemfiles/dry_validation.gemfile
+            specs: 'spec/integration/dry_validation'
+          - ruby: '3.3'
+            gemfile: gemfiles/rails_6_1.gemfile
+            specs: 'spec/integration/rails'
+          - ruby: '3.3'
+            gemfile: gemfiles/rails_7_0.gemfile
+            specs: 'spec/integration/rails'
+          - ruby: '3.3'
+            gemfile: gemfiles/rails_7_1.gemfile
+            specs: 'spec/integration/rails'
+          - ruby: '3.3'
+            gemfile: gemfiles/rails_7_2.gemfile
+            specs: 'spec/integration/rails'
+          - ruby: '3.3'
+            gemfile: gemfiles/rails_8_0.gemfile
+            specs: 'spec/integration/rails'
+        exclude:
+          - ruby: '2.7'
+            gemfile: gemfiles/rails_7_2.gemfile
+          - ruby: '3.0'
+            gemfile: gemfiles/rails_7_2.gemfile
+          - ruby: '2.7'
+            gemfile: gemfiles/rails_8_0.gemfile
+          - ruby: '3.0'
+            gemfile: gemfiles/rails_8_0.gemfile
+          - ruby: '3.1'
+            gemfile: gemfiles/rails_8_0.gemfile
+    runs-on: ubuntu-latest
     env:
-      BUNDLE_GEMFILE: ${{ matrix.gemfile }}
-
+      BUNDLE_GEMFILE: ${{ github.workspace }}/${{ matrix.gemfile }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
     - name: Set up Ruby
       uses: ruby/setup-ruby@v1
@@ -75,17 +83,22 @@ jobs:
         ruby-version: ${{ matrix.ruby }}
         bundler-cache: true
 
-    - name: Run tests
-      run: bundle exec rake spec
+    - name: Run Tests (${{ matrix.specs }})
+      run: bundle exec rspec ${{ matrix.specs }}
 
-    - name: Run tests (spec/integration/eager_load)
-      if: ${{ matrix.gemfile == 'Gemfile' }}
-      run: bundle exec rspec spec/integration/eager_load
+    - name: Coveralls
+      uses: coverallsapp/github-action@v2
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        flag-name: run-${{ matrix.ruby }}-${{ matrix.gemfile }}
+        parallel: true
 
-    - name: Run tests (spec/integration/multi_json)
-      if: ${{ matrix.gemfile == 'gemfiles/multi_json.gemfile' }}
-      run: bundle exec rspec spec/integration/multi_json
-
-    - name: Run tests (spec/integration/multi_xml)
-      if: ${{ matrix.gemfile == 'gemfiles/multi_xml.gemfile' }}
-      run: bundle exec rspec spec/integration/multi_xml
+  finish:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Coveralls Finished
+      uses: coverallsapp/github-action@v2
+      with:
+        github-token: ${{ secrets.github_token }}
+        parallel-finished: true

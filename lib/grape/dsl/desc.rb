@@ -5,6 +5,27 @@ module Grape
     module Desc
       include Grape::DSL::Settings
 
+      ROUTE_ATTRIBUTES = %i[
+        body_name
+        consumes
+        default
+        deprecated
+        description
+        detail
+        entity
+        headers
+        hidden
+        http_codes
+        is_array
+        named
+        nickname
+        params
+        produces
+        security
+        summary
+        tags
+      ].freeze
+
       # Add a description to the next namespace or function.
       # @param description [String] descriptive string for this endpoint
       #   or namespace
@@ -49,74 +70,29 @@ module Grape
       #       # ...
       #     end
       #
-      def desc(description, options = {}, &config_block)
-        if block_given?
-          endpoint_configuration = if defined?(configuration)
-                                     # When the instance is mounted - the configuration is executed on mount time
-                                     if configuration.respond_to?(:evaluate)
-                                       configuration.evaluate
-                                     # Within `given` or `mounted blocks` the configuration is already evaluated
-                                     elsif configuration.is_a?(Hash)
-                                       configuration
-                                     end
-                                   end
-          endpoint_configuration ||= {}
-          config_class = desc_container(endpoint_configuration)
+      def desc(description, options = nil, &config_block)
+        opts =
+          if config_block
+            desc_container(endpoint_configuration).then do |config_class|
+              config_class.configure do
+                description(description)
+              end
 
-          config_class.configure do
-            description description
+              config_class.configure(&config_block)
+              config_class.settings
+            end
+          else
+            options&.merge(description: description) || { description: description }
           end
 
-          config_class.configure(&config_block)
-          unless options.empty?
-            warn '[DEPRECATION] Passing a options hash and a block to `desc` is deprecated. Move all hash options to block.'
-          end
-          options = config_class.settings
-        else
-          options = options.merge(description: description)
-        end
-
-        namespace_setting :description, options
-        route_setting :description, options
-      end
-
-      def description_field(field, value = nil)
-        description = route_setting(:description)
-        if value
-          description ||= route_setting(:description, {})
-          description[field] = value
-        elsif description
-          description[field]
-        end
-      end
-
-      def unset_description_field(field)
-        description = route_setting(:description)
-        description.delete(field) if description
+        namespace_setting :description, opts
+        route_setting :description, opts
       end
 
       # Returns an object which configures itself via an instance-context DSL.
       def desc_container(endpoint_configuration)
         Module.new do
-          include Grape::Util::StrictHashConfiguration.module(
-            :summary,
-            :description,
-            :detail,
-            :params,
-            :entity,
-            :http_codes,
-            :named,
-            :body_name,
-            :headers,
-            :hidden,
-            :deprecated,
-            :is_array,
-            :nickname,
-            :produces,
-            :consumes,
-            :security,
-            :tags
-          )
+          include Grape::Util::StrictHashConfiguration.module(*ROUTE_ATTRIBUTES)
           config_context.define_singleton_method(:configuration) do
             endpoint_configuration
           end
@@ -128,6 +104,19 @@ module Grape
           def config_context.failure(*args)
             http_codes(*args)
           end
+        end
+      end
+
+      private
+
+      def endpoint_configuration
+        return {} unless defined?(configuration)
+
+        if configuration.respond_to?(:evaluate)
+          configuration.evaluate
+          # Within `given` or `mounted blocks` the configuration is already evaluated
+        elsif configuration.is_a?(Hash)
+          configuration
         end
       end
     end

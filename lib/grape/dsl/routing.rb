@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'active_support/concern'
-
 module Grape
   module DSL
     module Routing
@@ -32,13 +30,13 @@ module Grape
           if args.any?
             options = args.extract_options!
             options = options.reverse_merge(using: :path)
-            requested_versions = args.flatten
+            requested_versions = args.flatten.map(&:to_s)
 
             raise Grape::Exceptions::MissingVendorOption.new if options[:using] == :header && !options.key?(:vendor)
 
             @versions = versions | requested_versions
 
-            if block_given?
+            if block
               within_namespace do
                 namespace_inheritable(:version, requested_versions)
                 namespace_inheritable(:version_options, options)
@@ -56,7 +54,7 @@ module Grape
 
         # Define a root URL prefix for your entire API.
         def prefix(prefix = nil)
-          namespace_inheritable(:root_prefix, prefix)
+          namespace_inheritable(:root_prefix, prefix&.to_s)
         end
 
         # Create a scope without affecting the URL.
@@ -79,12 +77,16 @@ module Grape
           namespace_inheritable(:do_not_route_options, true)
         end
 
+        def do_not_document!
+          namespace_inheritable(:do_not_document, true)
+        end
+
         def mount(mounts, *opts)
           mounts = { mounts => '/' } unless mounts.respond_to?(:each_pair)
           mounts.each_pair do |app, path|
             if app.respond_to?(:mount_instance)
-              opts_with = opts.any? ? opts.shift[:with] : {}
-              mount({ app.mount_instance(configuration: opts_with) => path })
+              opts_with = opts.any? ? opts.first[:with] : {}
+              mount({ app.mount_instance(configuration: opts_with) => path }, *opts)
               next
             end
             in_setting = inheritable_setting
@@ -99,6 +101,15 @@ module Grape
 
               app.change!
               change!
+            end
+
+            # When trying to mount multiple times the same endpoint, remove the previous ones
+            # from the list of endpoints if refresh_already_mounted parameter is true
+            refresh_already_mounted = opts.any? ? opts.first[:refresh_already_mounted] : false
+            if refresh_already_mounted && !endpoints.empty?
+              endpoints.delete_if do |endpoint|
+                endpoint.options[:app].to_s == app.to_s
+              end
             end
 
             endpoints << Grape::Endpoint.new(
@@ -164,19 +175,12 @@ module Grape
         #       end
         #     end
         def namespace(space = nil, options = {}, &block)
-          @namespace_description = nil unless instance_variable_defined?(:@namespace_description) && @namespace_description
+          return Namespace.joined_space_path(namespace_stackable(:namespace)) unless space || block
 
-          if space || block_given?
-            within_namespace do
-              previous_namespace_description = @namespace_description
-              @namespace_description = (@namespace_description || {}).deep_merge(namespace_setting(:description) || {})
-              nest(block) do
-                namespace_stackable(:namespace, Namespace.new(space, **options)) if space
-              end
-              @namespace_description = previous_namespace_description
+          within_namespace do
+            nest(block) do
+              namespace_stackable(:namespace, Namespace.new(space, options)) if space
             end
-          else
-            Namespace.joined_space_path(namespace_stackable(:namespace))
           end
         end
 
@@ -222,6 +226,13 @@ module Grape
         # @return array of defined versions
         def versions
           @versions ||= []
+        end
+
+        private
+
+        def refresh_mounted_api(mounts, *opts)
+          opts << { refresh_already_mounted: true }
+          mount(mounts, *opts)
         end
       end
     end
