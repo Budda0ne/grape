@@ -2,34 +2,16 @@
 
 module Grape
   module Formatter
-    extend Util::Registrable
+    extend Grape::Util::Registry
 
-    class << self
-      def builtin_formatters
-        @builtin_formatters ||= {
-          json: Grape::Formatter::Json,
-          jsonapi: Grape::Formatter::Json,
-          serializable_hash: Grape::Formatter::SerializableHash,
-          txt: Grape::Formatter::Txt,
-          xml: Grape::Formatter::Xml
-        }
-      end
+    module_function
 
-      def formatters(**options)
-        builtin_formatters.merge(default_elements).merge!(options[:formatters] || {})
-      end
+    DEFAULT_LAMBDA_FORMATTER = ->(obj, _env) { obj }
 
-      def formatter_for(api_format, **options)
-        spec = formatters(**options)[api_format]
-        case spec
-        when nil
-          ->(obj, _env) { obj }
-        when Symbol
-          method(spec)
-        else
-          spec
-        end
-      end
+    def formatter_for(api_format, formatters)
+      return formatters[api_format] if formatters&.key?(api_format)
+
+      registry[api_format] || DEFAULT_LAMBDA_FORMATTER
     end
   end
 end

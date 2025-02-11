@@ -6,46 +6,40 @@ module Spec
     module Helpers
       # Returns the path with options[:version] prefixed if options[:using] is :path.
       # Returns normal path otherwise.
-      def versioned_path(**options)
+      def versioned_path(options)
         case options[:using]
         when :path
           File.join('/', options[:prefix] || '', options[:version], options[:path])
-        when :param
-          File.join('/', options[:prefix] || '', options[:path])
-        when :header
-          File.join('/', options[:prefix] || '', options[:path])
-        when :accept_version_header
+        when :param, :header, :accept_version_header
           File.join('/', options[:prefix] || '', options[:path])
         else
           raise ArgumentError.new("unknown versioning strategy: #{options[:using]}")
         end
       end
 
-      def versioned_headers(**options)
+      def versioned_headers(options)
         case options[:using]
-        when :path
-          {}  # no-op
-        when :param
-          {}  # no-op
+        when :path, :param
+          {}
         when :header
           {
-            'HTTP_ACCEPT' => [
+            Grape::Http::Headers::HTTP_ACCEPT => [
               "application/vnd.#{options[:vendor]}-#{options[:version]}",
               options[:format]
             ].compact.join('+')
           }
         when :accept_version_header
           {
-            'HTTP_ACCEPT_VERSION' => options[:version].to_s
+            Grape::Http::Headers::HTTP_ACCEPT_VERSION => options[:version].to_s
           }
         else
           raise ArgumentError.new("unknown versioning strategy: #{options[:using]}")
         end
       end
 
-      def versioned_get(path, version_name, **version_options)
-        path = versioned_path(**version_options.merge(version: version_name, path: path))
-        headers = versioned_headers(**version_options.merge(version: version_name))
+      def versioned_get(path, version_name, version_options)
+        path = versioned_path(version_options.merge(version: version_name, path: path))
+        headers = versioned_headers(version_options.merge(version: version_name))
         params = {}
         params = { version_options[:parameter] => version_name } if version_options[:using] == :param
         get path, params, headers

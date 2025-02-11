@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
-
 describe Grape::Validations::ParamsScope do
   subject do
     Class.new(Grape::API)
@@ -11,93 +9,14 @@ describe Grape::Validations::ParamsScope do
     subject
   end
 
-  context 'setting a default' do
-    let(:documentation) { subject.routes.first.params }
-
-    context 'when the default value is truthy' do
-      before do
-        subject.params do
-          optional :int, type: Integer, default: 42
-        end
-        subject.get
-      end
-
-      it 'adds documentation about the default value' do
-        expect(documentation).to have_key('int')
-        expect(documentation['int']).to have_key(:default)
-        expect(documentation['int'][:default]).to eq(42)
-      end
-    end
-
-    context 'when the default value is false' do
-      before do
-        subject.params do
-          optional :bool, type: Grape::API::Boolean, default: false
-        end
-        subject.get
-      end
-
-      it 'adds documentation about the default value' do
-        expect(documentation).to have_key('bool')
-        expect(documentation['bool']).to have_key(:default)
-        expect(documentation['bool'][:default]).to eq(false)
-      end
-    end
-
-    context 'when the default value is nil' do
-      before do
-        subject.params do
-          optional :object, type: Object, default: nil
-        end
-        subject.get
-      end
-
-      it 'adds documentation about the default value' do
-        expect(documentation).to have_key('object')
-        expect(documentation['object']).to have_key(:default)
-        expect(documentation['object'][:default]).to eq(nil)
-      end
-    end
-  end
-
-  context 'without a default' do
-    before do
-      subject.params do
-        optional :object, type: Object
-      end
-      subject.get
-    end
-
-    it 'does not add documentation for the default value' do
-      documentation = subject.routes.first.params
-      expect(documentation).to have_key('object')
-      expect(documentation['object']).not_to have_key(:default)
-    end
-  end
-
-  context 'setting description' do
-    %i[desc description].each do |description_type|
-      it "allows setting #{description_type}" do
-        subject.params do
-          requires :int, type: Integer, description_type => 'My very nice integer'
-        end
-        subject.get '/single' do
-          'int works'
-        end
-        get '/single', int: 420
-        expect(last_response.status).to eq(200)
-        expect(last_response.body).to eq('int works')
-      end
-    end
-  end
-
   context 'when using custom types' do
-    module ParamsScopeSpec
-      class CustomType
+    let(:custom_type) do
+      Class.new do
         attr_reader :value
 
         def self.parse(value)
           raise if value == 'invalid'
+
           new(value)
         end
 
@@ -108,8 +27,9 @@ describe Grape::Validations::ParamsScope do
     end
 
     it 'coerces the parameter via the type\'s parse method' do
+      context = self
       subject.params do
-        requires :foo, type: ParamsScopeSpec::CustomType
+        requires :foo, type: context.custom_type
       end
       subject.get('/types') { params[:foo].value }
 
@@ -138,13 +58,13 @@ describe Grape::Validations::ParamsScope do
 
     it do
       subject.params do
-        requires :foo, as: :bar, type: String, coerce_with: ->(c) { c.strip }
+        requires :foo, as: :bar, type: String, coerce_with: lambda(&:strip)
       end
       subject.get('/renaming-coerced') { "#{params['bar']}-#{params['foo']}" }
       get '/renaming-coerced', foo: ' there we go '
 
       expect(last_response.status).to eq(200)
-      expect(last_response.body).to eq('there we go-')
+      expect(last_response.body).to eq('-there we go')
     end
 
     it do
@@ -185,7 +105,7 @@ describe Grape::Validations::ParamsScope do
       subject.params do
         optional :foo, as: :bar, default: 'before'
       end
-      subject.get('/rename-before-default') { params[:bar] }
+      subject.get('/rename-before-default') { declared(params)[:bar] }
       get '/rename-before-default'
 
       expect(last_response.status).to eq(200)
@@ -196,7 +116,7 @@ describe Grape::Validations::ParamsScope do
       subject.params do
         optional :foo, default: 'after', as: :bar
       end
-      subject.get('/rename-after-default') { params[:bar] }
+      subject.get('/rename-after-default') { declared(params)[:bar] }
       get '/rename-after-default'
 
       expect(last_response.status).to eq(200)
@@ -260,12 +180,30 @@ describe Grape::Validations::ParamsScope do
     end
 
     it 'allows the proc to pass validation without checking in except' do
-      subject.params { requires :numbers, type: Integer, values: { except: -> { [0, 1, 2] } } }
+      subject.params { requires :numbers, type: Integer, except_values: -> { [0, 1, 2] } }
 
       subject.post('/required') { 'coercion with proc works' }
       post '/required', numbers: '10'
       expect(last_response.status).to eq(201)
       expect(last_response.body).to eq('coercion with proc works')
+    end
+  end
+
+  context 'a Set with coerce type explicitly given' do
+    context 'and the values are allowed' do
+      it 'does not raise an exception' do
+        expect do
+          subject.params { optional :numbers, type: Set[Integer], values: 0..2, default: 0..2 }
+        end.not_to raise_error
+      end
+    end
+
+    context 'and the values are not allowed' do
+      it 'raises exception' do
+        expect do
+          subject.params { optional :numbers, type: Set[Integer], values: %w[a b] }
+        end.to raise_error Grape::Exceptions::IncompatibleOptionValues
+      end
     end
   end
 
@@ -291,7 +229,7 @@ describe Grape::Validations::ParamsScope do
         it 'does not raise an exception' do
           expect do
             subject.params { optional :numbers, type: Array[Integer], values: 0..2, default: 0..2 }
-          end.to_not raise_error
+          end.not_to raise_error
         end
       end
 
@@ -299,7 +237,7 @@ describe Grape::Validations::ParamsScope do
         it 'does not raise an exception' do
           expect do
             subject.params { optional :numbers, type: Array[Integer], values: [0, 1, 2], default: [1, 0] }
-          end.to_not raise_error
+          end.not_to raise_error
         end
       end
     end
@@ -337,7 +275,7 @@ describe Grape::Validations::ParamsScope do
             requires :b
           end
         end
-      end.to raise_error Grape::Exceptions::MissingGroupTypeError
+      end.to raise_error Grape::Exceptions::MissingGroupType
 
       expect do
         subject.params do
@@ -345,7 +283,7 @@ describe Grape::Validations::ParamsScope do
             requires :b
           end
         end
-      end.to raise_error Grape::Exceptions::MissingGroupTypeError
+      end.to raise_error Grape::Exceptions::MissingGroupType
     end
 
     it 'allows Hash as type' do
@@ -405,7 +343,7 @@ describe Grape::Validations::ParamsScope do
             requires :b
           end
         end
-      end.to raise_error Grape::Exceptions::UnsupportedGroupTypeError
+      end.to raise_error Grape::Exceptions::UnsupportedGroupType
 
       expect do
         subject.params do
@@ -413,7 +351,7 @@ describe Grape::Validations::ParamsScope do
             requires :b
           end
         end
-      end.to raise_error Grape::Exceptions::UnsupportedGroupTypeError
+      end.to raise_error Grape::Exceptions::UnsupportedGroupType
     end
   end
 
@@ -523,7 +461,7 @@ describe Grape::Validations::ParamsScope do
             requires :c
           end
         end
-      end.to_not raise_error
+      end.not_to raise_error
     end
 
     it 'does not raise an error if when using nested given' do
@@ -539,7 +477,7 @@ describe Grape::Validations::ParamsScope do
             end
           end
         end
-      end.to_not raise_error
+      end.not_to raise_error
     end
 
     it 'allows nested dependent parameters' do
@@ -584,13 +522,13 @@ describe Grape::Validations::ParamsScope do
       body = JSON.parse(last_response.body)
 
       expect(body.keys).to include('c')
-      expect(body.keys).to_not include('b')
+      expect(body.keys).not_to include('b')
     end
 
     it 'allows renaming of dependent on parameter' do
       subject.params do
         optional :a, as: :b
-        given b: ->(val) { val == 'x' } do
+        given a: ->(val) { val == 'x' } do
           requires :c
         end
       end
@@ -604,11 +542,22 @@ describe Grape::Validations::ParamsScope do
       expect(last_response.status).to eq 200
     end
 
-    it 'raises an error if the dependent parameter is not the renamed one' do
+    it 'does not raise if the dependent parameter is not the renamed one' do
       expect do
         subject.params do
           optional :a, as: :b
           given :a do
+            requires :c
+          end
+        end
+      end.not_to raise_error
+    end
+
+    it 'raises an error if the dependent parameter is the renamed one' do
+      expect do
+        subject.params do
+          optional :a, as: :b
+          given :b do
             requires :c
           end
         end
@@ -734,6 +683,317 @@ describe Grape::Validations::ParamsScope do
       get '/nested', bar: { a: true, c: { b: 'yes' } }
       expect(JSON.parse(last_response.body)).to eq('bar' => { 'a' => 'true', 'c' => { 'b' => 'yes' } })
     end
+
+    context 'when the dependent parameter is not present #declared(params)' do
+      context 'lateral parameter' do
+        before do
+          [true, false].each do |evaluate_given|
+            subject.params do
+              optional :a
+              given :a do
+                optional :b
+              end
+            end
+            subject.get("/evaluate_given_#{evaluate_given}") { declared(params, evaluate_given: evaluate_given).to_json }
+          end
+        end
+
+        it 'evaluate_given_false' do
+          get '/evaluate_given_false', b: 'b'
+          expect(JSON.parse(last_response.body)).to eq('a' => nil, 'b' => 'b')
+        end
+
+        it 'evaluate_given_true' do
+          get '/evaluate_given_true', b: 'b'
+          expect(JSON.parse(last_response.body)).to eq('a' => nil)
+        end
+      end
+
+      context 'lateral hash parameter' do
+        before do
+          [true, false].each do |evaluate_given|
+            subject.params do
+              optional :a, values: %w[x y]
+              given a: ->(a) { a == 'x' } do
+                optional :b, type: Hash do
+                  optional :c
+                end
+                optional :e
+              end
+              given a: ->(a) { a == 'y' } do
+                optional :b, type: Hash do
+                  optional :d
+                end
+                optional :f
+              end
+            end
+            subject.get("/evaluate_given_#{evaluate_given}") { declared(params, evaluate_given: evaluate_given).to_json }
+          end
+        end
+
+        it 'evaluate_given_false' do
+          get '/evaluate_given_false', a: 'x'
+          expect(JSON.parse(last_response.body)).to eq('a' => 'x', 'b' => { 'd' => nil }, 'e' => nil, 'f' => nil)
+
+          get '/evaluate_given_false', a: 'y'
+          expect(JSON.parse(last_response.body)).to eq('a' => 'y', 'b' => { 'd' => nil }, 'e' => nil, 'f' => nil)
+        end
+
+        it 'evaluate_given_true' do
+          get '/evaluate_given_true', a: 'x'
+          expect(JSON.parse(last_response.body)).to eq('a' => 'x', 'b' => { 'c' => nil }, 'e' => nil)
+
+          get '/evaluate_given_true', a: 'y'
+          expect(JSON.parse(last_response.body)).to eq('a' => 'y', 'b' => { 'd' => nil }, 'f' => nil)
+        end
+      end
+
+      context 'lateral parameter within lateral hash parameter' do
+        before do
+          [true, false].each do |evaluate_given|
+            subject.params do
+              optional :a, values: %w[x y]
+              given a: ->(a) { a == 'x' } do
+                optional :b, type: Hash do
+                  optional :c
+                  given :c do
+                    optional :g
+                    optional :e, type: Hash do
+                      optional :h
+                    end
+                  end
+                end
+              end
+              given a: ->(a) { a == 'y' } do
+                optional :b, type: Hash do
+                  optional :d
+                  given :d do
+                    optional :f
+                    optional :e, type: Hash do
+                      optional :i
+                    end
+                  end
+                end
+              end
+            end
+            subject.get("/evaluate_given_#{evaluate_given}") { declared(params, evaluate_given: evaluate_given).to_json }
+          end
+        end
+
+        it 'evaluate_given_false' do
+          get '/evaluate_given_false', a: 'x'
+          expect(JSON.parse(last_response.body)).to eq('a' => 'x', 'b' => { 'd' => nil, 'f' => nil, 'e' => { 'i' => nil } })
+
+          get '/evaluate_given_false', a: 'x', b: { c: 'c' }
+          expect(JSON.parse(last_response.body)).to eq('a' => 'x', 'b' => { 'd' => nil, 'f' => nil, 'e' => { 'i' => nil } })
+
+          get '/evaluate_given_false', a: 'y'
+          expect(JSON.parse(last_response.body)).to eq('a' => 'y', 'b' => { 'd' => nil, 'f' => nil, 'e' => { 'i' => nil } })
+
+          get '/evaluate_given_false', a: 'y', b: { d: 'd' }
+          expect(JSON.parse(last_response.body)).to eq('a' => 'y', 'b' => { 'd' => 'd', 'f' => nil, 'e' => { 'i' => nil } })
+        end
+
+        it 'evaluate_given_true' do
+          get '/evaluate_given_true', a: 'x'
+          expect(JSON.parse(last_response.body)).to eq('a' => 'x', 'b' => { 'c' => nil })
+
+          get '/evaluate_given_true', a: 'x', b: { c: 'c' }
+          expect(JSON.parse(last_response.body)).to eq('a' => 'x', 'b' => { 'c' => 'c', 'g' => nil, 'e' => { 'h' => nil } })
+
+          get '/evaluate_given_true', a: 'y'
+          expect(JSON.parse(last_response.body)).to eq('a' => 'y', 'b' => { 'd' => nil })
+
+          get '/evaluate_given_true', a: 'y', b: { d: 'd' }
+          expect(JSON.parse(last_response.body)).to eq('a' => 'y', 'b' => { 'd' => 'd', 'f' => nil, 'e' => { 'i' => nil } })
+        end
+      end
+
+      context 'lateral parameter within an array param' do
+        before do
+          [true, false].each do |evaluate_given|
+            subject.params do
+              optional :array, type: Array do
+                optional :a
+                given :a do
+                  optional :b
+                end
+              end
+            end
+            subject.post("/evaluate_given_#{evaluate_given}") do
+              declared(params, evaluate_given: evaluate_given).to_json
+            end
+          end
+        end
+
+        it 'evaluate_given_false' do
+          post '/evaluate_given_false', { array: [{ b: 'b' }, { a: 'a', b: 'b' }] }.to_json, 'CONTENT_TYPE' => 'application/json'
+          expect(JSON.parse(last_response.body)).to eq('array' => [{ 'a' => nil, 'b' => 'b' }, { 'a' => 'a', 'b' => 'b' }])
+        end
+
+        it 'evaluate_given_true' do
+          post '/evaluate_given_true', { array: [{ b: 'b' }, { a: 'a', b: 'b' }] }.to_json, 'CONTENT_TYPE' => 'application/json'
+          expect(JSON.parse(last_response.body)).to eq('array' => [{ 'a' => nil }, { 'a' => 'a', 'b' => 'b' }])
+        end
+      end
+
+      context 'nested given parameter' do
+        before do
+          [true, false].each do |evaluate_given|
+            subject.params do
+              optional :a
+              optional :c
+              given :a do
+                given :c do
+                  optional :b
+                end
+              end
+            end
+            subject.post("/evaluate_given_#{evaluate_given}") do
+              declared(params, evaluate_given: evaluate_given).to_json
+            end
+          end
+        end
+
+        it 'evaluate_given_false' do
+          post '/evaluate_given_false', { a: 'a', b: 'b' }.to_json, 'CONTENT_TYPE' => 'application/json'
+          expect(JSON.parse(last_response.body)).to eq('a' => 'a', 'b' => 'b', 'c' => nil)
+
+          post '/evaluate_given_false', { c: 'c', b: 'b' }.to_json, 'CONTENT_TYPE' => 'application/json'
+          expect(JSON.parse(last_response.body)).to eq('a' => nil, 'b' => 'b', 'c' => 'c')
+
+          post '/evaluate_given_false', { a: 'a', c: 'c', b: 'b' }.to_json, 'CONTENT_TYPE' => 'application/json'
+          expect(JSON.parse(last_response.body)).to eq('a' => 'a', 'b' => 'b', 'c' => 'c')
+        end
+
+        it 'evaluate_given_true' do
+          post '/evaluate_given_true', { a: 'a', b: 'b' }.to_json, 'CONTENT_TYPE' => 'application/json'
+          expect(JSON.parse(last_response.body)).to eq('a' => 'a', 'c' => nil)
+
+          post '/evaluate_given_true', { c: 'c', b: 'b' }.to_json, 'CONTENT_TYPE' => 'application/json'
+          expect(JSON.parse(last_response.body)).to eq('a' => nil, 'c' => 'c')
+
+          post '/evaluate_given_true', { a: 'a', c: 'c', b: 'b' }.to_json, 'CONTENT_TYPE' => 'application/json'
+          expect(JSON.parse(last_response.body)).to eq('a' => 'a', 'b' => 'b', 'c' => 'c')
+        end
+      end
+
+      context 'nested given parameter within an array param' do
+        before do
+          [true, false].each do |evaluate_given|
+            subject.params do
+              optional :array, type: Array do
+                optional :a
+                optional :c
+                given :a do
+                  given :c do
+                    optional :b
+                  end
+                end
+              end
+            end
+            subject.post("/evaluate_given_#{evaluate_given}") do
+              declared(params, evaluate_given: evaluate_given).to_json
+            end
+          end
+        end
+
+        let :evaluate_given_params do
+          {
+            array: [
+              { a: 'a', b: 'b' },
+              { c: 'c', b: 'b' },
+              { a: 'a', c: 'c', b: 'b' }
+            ]
+          }
+        end
+
+        it 'evaluate_given_false' do
+          post '/evaluate_given_false', evaluate_given_params.to_json, 'CONTENT_TYPE' => 'application/json'
+          expect(JSON.parse(last_response.body)).to eq('array' => [{ 'a' => 'a', 'b' => 'b', 'c' => nil }, { 'a' => nil, 'b' => 'b', 'c' => 'c' }, { 'a' => 'a', 'b' => 'b', 'c' => 'c' }])
+        end
+
+        it 'evaluate_given_true' do
+          post '/evaluate_given_true', evaluate_given_params.to_json, 'CONTENT_TYPE' => 'application/json'
+          expect(JSON.parse(last_response.body)).to eq('array' => [{ 'a' => 'a', 'c' => nil }, { 'a' => nil, 'c' => 'c' }, { 'a' => 'a', 'b' => 'b', 'c' => 'c' }])
+        end
+      end
+
+      context 'nested given parameter within a nested given parameter within an array param' do
+        before do
+          [true, false].each do |evaluate_given|
+            subject.params do
+              optional :array, type: Array do
+                optional :a
+                optional :c
+                given :a do
+                  given :c do
+                    optional :array, type: Array do
+                      optional :a
+                      optional :c
+                      given :a do
+                        given :c do
+                          optional :b
+                        end
+                      end
+                    end
+                  end
+                end
+              end
+            end
+            subject.post("/evaluate_given_#{evaluate_given}") do
+              declared(params, evaluate_given: evaluate_given).to_json
+            end
+          end
+        end
+
+        let :evaluate_given_params do
+          {
+            array: [{
+              a: 'a',
+              c: 'c',
+              array: [
+                { a: 'a', b: 'b' },
+                { c: 'c', b: 'b' },
+                { a: 'a', c: 'c', b: 'b' }
+              ]
+            }]
+          }
+        end
+
+        it 'evaluate_given_false' do
+          expected_response_hash = {
+            'array' => [{
+              'a' => 'a',
+              'c' => 'c',
+              'array' => [
+                { 'a' => 'a', 'b' => 'b', 'c' => nil },
+                { 'a' => nil, 'c' => 'c', 'b' => 'b' },
+                { 'a' => 'a', 'c' => 'c', 'b' => 'b' }
+              ]
+            }]
+          }
+          post '/evaluate_given_false', evaluate_given_params.to_json, 'CONTENT_TYPE' => 'application/json'
+          expect(JSON.parse(last_response.body)).to eq(expected_response_hash)
+        end
+
+        it 'evaluate_given_true' do
+          expected_response_hash = {
+            'array' => [{
+              'a' => 'a',
+              'c' => 'c',
+              'array' => [
+                { 'a' => 'a', 'c' => nil },
+                { 'a' => nil, 'c' => 'c' },
+                { 'a' => 'a', 'b' => 'b', 'c' => 'c' }
+              ]
+            }]
+          }
+          post '/evaluate_given_true', evaluate_given_params.to_json, 'CONTENT_TYPE' => 'application/json'
+          expect(JSON.parse(last_response.body)).to eq(expected_response_hash)
+        end
+      end
+    end
   end
 
   context 'default value in given block' do
@@ -775,7 +1035,7 @@ describe Grape::Validations::ParamsScope do
       subject.get('/test') { 'ok' }
     end
 
-    it 'should pass none Hash params' do
+    it 'passes none Hash params' do
       get '/test', foos: ['']
       expect(last_response.status).to eq(200)
       expect(last_response.body).to eq('ok')
@@ -951,6 +1211,7 @@ describe Grape::Validations::ParamsScope do
         expect(last_response.body).to eq('one is missing, two is missing, three is missing')
       end
     end
+
     context 'when fail_fast is defined it stops the validation' do
       it 'of other params' do
         subject.params do
@@ -963,6 +1224,7 @@ describe Grape::Validations::ParamsScope do
         expect(last_response.status).to eq(400)
         expect(last_response.body).to eq('one is missing')
       end
+
       it 'for a single param' do
         subject.params do
           requires :one, allow_blank: false, regexp: /[0-9]+/, fail_fast: true
@@ -1013,7 +1275,7 @@ describe Grape::Validations::ParamsScope do
         end
 
         it 'prioritizes parameter validation over group validation' do
-          expect(last_response.body).to_not include('address is empty')
+          expect(last_response.body).not_to include('address is empty')
         end
       end
     end
@@ -1134,6 +1396,96 @@ describe Grape::Validations::ParamsScope do
 
         it 'returns a successful response' do
           expect(last_response.status).to eq(200)
+        end
+      end
+    end
+
+    context 'with many levels of nested groups' do
+      before do
+        subject.params do
+          requires :first_level, type: Hash do
+            with(type: Integer) do
+              requires :value
+              with(type: String) do
+                optional :second_level, type: Array do
+                  optional :name, type: String
+                  with(type: Integer) do
+                    optional :third_level, type: Array do
+                      requires :value, type: Integer
+                      optional :position
+                    end
+                  end
+                end
+              end
+              requires :id
+            end
+          end
+        end
+        subject.put('/nested') { declared(params).to_json }
+      end
+
+      context 'when data is valid' do
+        let(:request_params) do
+          {
+            first_level: {
+              value: '10',
+              second_level: [
+                {
+                  name: '13',
+                  third_level: [
+                    {
+                      value: '2',
+                      position: '1'
+                    }
+                  ]
+                }
+              ],
+              id: '20'
+            }
+          }
+        end
+
+        it 'validates and coerces correctly' do
+          put '/nested', request_params.to_json, 'CONTENT_TYPE' => 'application/json'
+
+          expect(last_response.status).to eq(200)
+          expect(JSON.parse(last_response.body, symbolize_names: true)).to eq(
+            first_level: {
+              value: 10,
+              second_level: [
+                { name: '13', third_level: [{ value: 2, position: 1 }] }
+              ],
+              id: 20
+            }
+          )
+        end
+      end
+
+      context 'when data is invalid' do
+        let(:request_params) do
+          {
+            first_level: {
+              value: 'wrong',
+              second_level: [
+                { name: 'name', third_level: [{ position: 'wrong' }] }
+              ]
+            }
+          }
+        end
+
+        it 'responds with HTTP error' do
+          put '/nested', request_params.to_json, 'CONTENT_TYPE' => 'application/json'
+          expect(last_response.status).to eq(400)
+        end
+
+        it 'responds with a validation error' do
+          put '/nested', request_params.to_json, 'CONTENT_TYPE' => 'application/json'
+
+          expect(last_response.body)
+            .to include('first_level[value] is invalid')
+            .and include('first_level[id] is missing')
+            .and include('first_level[second_level][0][third_level][0][value] is missing')
+            .and include('first_level[second_level][0][third_level][0][position] is invalid')
         end
       end
     end

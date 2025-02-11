@@ -8,11 +8,47 @@ module Grape
 
       include Grape::DSL::Parameters
 
+      # There are a number of documentation options on entities that don't have
+      # corresponding validators. Since there is nowhere that enumerates them all,
+      # we maintain a list of them here and skip looking up validators for them.
+      RESERVED_DOCUMENTATION_KEYWORDS = %i[as required param_type is_array format example].freeze
+
+      class Attr
+        attr_accessor :key, :scope
+
+        # Open up a new ParamsScope::Attr
+        # @param key [Hash, Symbol] key of attr
+        # @param scope [Grape::Validations::ParamsScope] scope of attr
+        def initialize(key, scope)
+          @key = key
+          @scope = scope
+        end
+
+        # @return Array[Symbol, Hash[Symbol => Array]] declared_params with symbol instead of Attr
+        def self.attrs_keys(declared_params)
+          declared_params.map do |declared_param_attr|
+            attr_key(declared_param_attr)
+          end
+        end
+
+        def self.attr_key(declared_param_attr)
+          return attr_key(declared_param_attr.key) if declared_param_attr.is_a?(self)
+
+          if declared_param_attr.is_a?(Hash)
+            declared_param_attr.transform_values { |value| attrs_keys(value) }
+          else
+            declared_param_attr
+          end
+        end
+      end
+
       # Open up a new ParamsScope, allowing parameter definitions per
       #   Grape::DSL::Params.
       # @param opts [Hash] options for this scope
       # @option opts :element [Symbol] the element that contains this scope; for
       #   this to be relevant, @parent must be set
+      # @option opts :element_renamed [Symbol, nil] whenever this scope should
+      #   be renamed and to what, given +nil+ no renaming is done
       # @option opts :parent [ParamsScope] the scope containing this scope
       # @option opts :api [API] the API endpoint to modify
       # @option opts :optional [Boolean] whether or not this scope needs to have
@@ -23,17 +59,18 @@ module Grape
       #   validate if this param is present in the parent scope
       # @yield the instance context, open for parameter definitions
       def initialize(opts, &block)
-        @element      = opts[:element]
-        @parent       = opts[:parent]
-        @api          = opts[:api]
-        @optional     = opts[:optional] || false
-        @type         = opts[:type]
-        @group        = opts[:group] || {}
-        @dependent_on = opts[:dependent_on]
+        @element          = opts[:element]
+        @element_renamed  = opts[:element_renamed]
+        @parent           = opts[:parent]
+        @api              = opts[:api]
+        @optional         = opts[:optional] || false
+        @type             = opts[:type]
+        @group            = opts[:group]
+        @dependent_on     = opts[:dependent_on]
         @declared_params = []
         @index = nil
 
-        instance_eval(&block) if block_given?
+        instance_eval(&block) if block
 
         configure_declared_params
       end
@@ -50,18 +87,26 @@ module Grape
         return false if @optional && (scoped_params.blank? || all_element_blank?(scoped_params))
         return false unless meets_dependency?(scoped_params, parameters)
         return true if parent.nil?
+
         parent.should_validate?(parameters)
       end
 
       def meets_dependency?(params, request_params)
         return true unless @dependent_on
-
-        if @parent.present? && !@parent.meets_dependency?(@parent.params(request_params), request_params)
-          return false
-        end
-
+        return false if @parent.present? && !@parent.meets_dependency?(@parent.params(request_params), request_params)
         return params.any? { |param| meets_dependency?(param, request_params) } if params.is_a?(Array)
 
+        meets_hash_dependency?(params)
+      end
+
+      def attr_meets_dependency?(params)
+        return true unless @dependent_on
+        return false if @parent.present? && !@parent.attr_meets_dependency?(params)
+
+        meets_hash_dependency?(params)
+      end
+
+      def meets_hash_dependency?(params)
         # params might be anything what looks like a hash, so it must implement a `key?` method
         return false unless params.respond_to?(:key?)
 
@@ -121,37 +166,62 @@ module Grape
         !@optional
       end
 
+      def reset_index
+        @index = nil
+      end
+
       protected
 
       # Adds a parameter declaration to our list of validations.
       # @param attrs [Array] (see Grape::DSL::Parameters#requires)
-      def push_declared_params(attrs, **opts)
-        if lateral?
-          @parent.push_declared_params(attrs, **opts)
-        else
-          if opts && opts[:as]
-            @api.route_setting(:renamed_params, @api.route_setting(:renamed_params) || [])
-            @api.route_setting(:renamed_params) << { attrs.first => opts[:as] }
-            attrs = [opts[:as]]
-          end
+      def push_declared_params(attrs, opts = {})
+        opts[:declared_params_scope] = self unless opts.key?(:declared_params_scope)
+        return @parent.push_declared_params(attrs, opts) if lateral?
 
-          @declared_params.concat attrs
+        push_renamed_param(full_path + [attrs.first], opts[:as]) if opts[:as]
+        @declared_params.concat(attrs.map { |attr| ::Grape::Validations::ParamsScope::Attr.new(attr, opts[:declared_params_scope]) })
+      end
+
+      # Get the full path of the parameter scope in the hierarchy.
+      #
+      # @return [Array<Symbol>] the nesting/path of the current parameter scope
+      def full_path
+        if nested?
+          (@parent.full_path + [@element])
+        elsif lateral?
+          @parent.full_path
+        else
+          []
         end
       end
 
       private
 
+      # Add a new parameter which should be renamed when using the +#declared+
+      # method.
+      #
+      # @param path [Array<String, Symbol>] the full path of the parameter
+      #   (including the parameter name as last array element)
+      # @param new_name [String, Symbol] the new name of the parameter (the
+      #   renamed name, with the +as: ...+ semantic)
+      def push_renamed_param(path, new_name)
+        base = @api.route_setting(:renamed_params) || {}
+        base[Array(path).map(&:to_s)] = new_name.to_s
+        @api.route_setting(:renamed_params, base)
+      end
+
       def require_required_and_optional_fields(context, opts)
         if context == :all
-          optional_fields = Array(opts[:except])
-          required_fields = opts[:using].keys - optional_fields
+          optional_fields = Array.wrap(opts[:except])
+          required_fields = opts[:using].keys.delete_if { |f| optional_fields.include?(f) }
         else # context == :none
-          required_fields = Array(opts[:except])
-          optional_fields = opts[:using].keys - required_fields
+          required_fields = Array.wrap(opts[:except])
+          optional_fields = opts[:using].keys.delete_if { |f| required_fields.include?(f) }
         end
         required_fields.each do |field|
           field_opts = opts[:using][field]
           raise ArgumentError, "required field not exist: #{field}" unless field_opts
+
           requires(field, field_opts)
         end
         optional_fields.each do |field|
@@ -162,7 +232,10 @@ module Grape
 
       def require_optional_fields(context, opts)
         optional_fields = opts[:using].keys
-        optional_fields -= Array(opts[:except]) unless context == :all
+        unless context == :all
+          except_fields = Array.wrap(opts[:except])
+          optional_fields.delete_if { |f| except_fields.include?(f) }
+        end
         optional_fields.each do |field|
           field_opts = opts[:using][field]
           optional(field, field_opts) if field_opts
@@ -186,16 +259,18 @@ module Grape
         # if required params are grouped and no type or unsupported type is provided, raise an error
         type = attrs[1] ? attrs[1][:type] : nil
         if attrs.first && !optional
-          raise Grape::Exceptions::MissingGroupTypeError.new if type.nil?
-          raise Grape::Exceptions::UnsupportedGroupTypeError.new unless Grape::Validations::Types.group?(type)
+          raise Grape::Exceptions::MissingGroupType if type.nil?
+          raise Grape::Exceptions::UnsupportedGroupType unless Grape::Validations::Types.group?(type)
         end
 
         self.class.new(
-          api:      @api,
-          element:  attrs[1][:as] || attrs.first,
-          parent:   self,
+          api: @api,
+          element: attrs.first,
+          element_renamed: attrs[1][:as],
+          parent: self,
           optional: optional,
-          type:     type || Array,
+          type: type || Array,
+          group: @group,
           &block
         )
       end
@@ -209,11 +284,11 @@ module Grape
       # @yield parameter scope
       def new_lateral_scope(options, &block)
         self.class.new(
-          api:          @api,
-          element:      nil,
-          parent:       self,
-          options:      @optional,
-          type:         type == Array ? Array : Hash,
+          api: @api,
+          element: nil,
+          parent: self,
+          options: @optional,
+          type: type == Array ? Array : Hash,
           dependent_on: options[:dependent_on],
           &block
         )
@@ -225,16 +300,13 @@ module Grape
       #   `optional` invocation that opened this scope.
       # @yield parameter scope
       def new_group_scope(attrs, &block)
-        self.class.new(
-          api:          @api,
-          parent:       self,
-          group:        attrs.first,
-          &block
-        )
+        self.class.new(api: @api, parent: self, group: attrs.first, &block)
       end
 
       # Pushes declared params to parent or settings
       def configure_declared_params
+        push_renamed_param(full_path, @element_renamed) if @element_renamed
+
         if nested?
           @parent.push_declared_params [element => @declared_params]
         else
@@ -246,17 +318,14 @@ module Grape
       end
 
       def validates(attrs, validations)
-        doc_attrs = { required: validations.key?(:presence) }
+        doc = AttributesDoc.new @api, self
+        doc.extract_details validations
 
         coerce_type = infer_coercion(validations)
 
-        doc_attrs[:type] = coerce_type.to_s if coerce_type
-
-        desc = validations.delete(:desc) || validations.delete(:description)
-        doc_attrs[:desc] = desc if desc
+        doc.type = coerce_type
 
         default = validations[:default]
-        doc_attrs[:default] = default if validations.key?(:default)
 
         if (values_hash = validations[:values]).is_a? Hash
           values = values_hash[:value]
@@ -265,7 +334,8 @@ module Grape
         else
           values = validations[:values]
         end
-        doc_attrs[:values] = values if values
+
+        doc.values = values
 
         except_values = options_key?(:except_values, :value, validations) ? validations[:except_values][:value] : validations[:except_values]
 
@@ -281,32 +351,24 @@ module Grape
         # type should be compatible with values array, if both exist
         validate_value_coercion(coerce_type, values, except_values, excepts)
 
-        doc_attrs[:documentation] = validations.delete(:documentation) if validations.key?(:documentation)
-
-        document_attribute(attrs, doc_attrs)
+        doc.document attrs
 
         opts = derive_validator_options(validations)
 
-        order_specific_validations = Set[:as]
-
         # Validate for presence before any other validators
-        validates_presence(validations, attrs, doc_attrs, opts) do |validation_type|
-          order_specific_validations << validation_type
-        end
+        validates_presence(validations, attrs, doc, opts)
 
         # Before we run the rest of the validators, let's handle
         # whatever coercion so that we are working with correctly
         # type casted values
-        coerce_type validations, attrs, doc_attrs, opts
+        coerce_type validations, attrs, doc, opts
 
         validations.each do |type, options|
-          next if order_specific_validations.include?(type)
-          validate(type, options, attrs, doc_attrs, opts)
-        end
+          # Don't try to look up validators for documentation params that don't have one.
+          next if RESERVED_DOCUMENTATION_KEYWORDS.include?(type)
 
-        # Apply as validator last so other validations are applied to
-        # renamed param
-        validate(:as, validations[:as], attrs, doc_attrs, opts) if validations.key?(:as)
+          validate(type, options, attrs, doc, opts)
+        end
       end
 
       # Validate and comprehend the +:type+, +:types+, and +:coerce_with+
@@ -323,9 +385,7 @@ module Grape
       # @return [class-like] type to which the parameter will be coerced
       # @raise [ArgumentError] if the given type options are invalid
       def infer_coercion(validations)
-        if validations.key?(:type) && validations.key?(:types)
-          raise ArgumentError, ':type may not be supplied with :types'
-        end
+        raise ArgumentError, ':type may not be supplied with :types' if validations.key?(:type) && validations.key?(:types)
 
         validations[:coerce] = (options_key?(:type, :value, validations) ? validations[:type][:value] : validations[:type]) if validations.key?(:type)
         validations[:coerce_message] = (options_key?(:type, :message, validations) ? validations[:type][:message] : nil) if validations.key?(:type)
@@ -360,7 +420,8 @@ module Grape
 
         # but not special JSON types, which
         # already imply coercion method
-        return unless [JSON, Array[JSON]].include? validations[:coerce]
+        return if [JSON, Array[JSON]].exclude? validations[:coerce]
+
         raise ArgumentError, 'coerce_with disallowed for type: JSON'
       end
 
@@ -370,7 +431,7 @@ module Grape
       # composited from more than one +requires+/+optional+
       # parameter, and needs to be run before most other
       # validations.
-      def coerce_type(validations, attrs, doc_attrs, opts)
+      def coerce_type(validations, attrs, doc, opts)
         check_coerce_with(validations)
 
         return unless validations.key?(:coerce)
@@ -380,7 +441,7 @@ module Grape
           method: validations[:coerce_with],
           message: validations[:coerce_message]
         }
-        validate('coerce', coerce_options, attrs, doc_attrs, opts)
+        validate('coerce', coerce_options, attrs, doc, opts)
         validations.delete(:coerce_with)
         validations.delete(:coerce)
         validations.delete(:coerce_message)
@@ -388,6 +449,7 @@ module Grape
 
       def guess_coerce_type(coerce_type, *values_list)
         return coerce_type unless coerce_type == Array
+
         values_list.each do |values|
           next if !values || values.is_a?(Proc)
           return values.first.class if values.is_a?(Range) || !values.empty?
@@ -398,14 +460,10 @@ module Grape
       def check_incompatible_option_values(default, values, except_values, excepts)
         return unless default && !default.is_a?(Proc)
 
-        if values && !values.is_a?(Proc)
-          raise Grape::Exceptions::IncompatibleOptionValues.new(:default, default, :values, values) \
-            unless Array(default).all? { |def_val| values.include?(def_val) }
-        end
+        raise Grape::Exceptions::IncompatibleOptionValues.new(:default, default, :values, values) if values && !values.is_a?(Proc) && !Array(default).all? { |def_val| values.include?(def_val) }
 
-        if except_values && !except_values.is_a?(Proc)
-          raise Grape::Exceptions::IncompatibleOptionValues.new(:default, default, :except, except_values) \
-            unless Array(default).none? { |def_val| except_values.include?(def_val) }
+        if except_values && !except_values.is_a?(Proc) && Array(default).any? { |def_val| except_values.include?(def_val) }
+          raise Grape::Exceptions::IncompatibleOptionValues.new(:default, default, :except, except_values)
         end
 
         return unless excepts && !excepts.is_a?(Proc)
@@ -413,39 +471,34 @@ module Grape
           unless Array(default).none? { |def_val| excepts.include?(def_val) }
       end
 
-      def validate(type, options, attrs, doc_attrs, opts)
-        validator_class = Validations.validators[type.to_s]
-
-        raise Grape::Exceptions::UnknownValidator.new(type) unless validator_class
-
+      def validate(type, options, attrs, doc, opts)
         validator_options = {
-          attributes:      attrs,
-          options:         options,
-          required:        doc_attrs[:required],
-          params_scope:    self,
-          opts:            opts,
-          validator_class: validator_class
+          attributes: attrs,
+          options: options,
+          required: doc.required,
+          params_scope: self,
+          opts: opts,
+          validator_class: Validations.require_validator(type)
         }
         @api.namespace_stackable(:validations, validator_options)
       end
 
       def validate_value_coercion(coerce_type, *values_list)
         return unless coerce_type
-        coerce_type = coerce_type.first if coerce_type.is_a?(Array)
+
+        coerce_type = coerce_type.first if coerce_type.is_a?(Enumerable)
         values_list.each do |values|
           next if !values || values.is_a?(Proc)
-          value_types = values.is_a?(Range) ? [values.begin, values.end] : values
-          if coerce_type == Grape::API::Boolean
-            value_types = value_types.map { |type| Grape::API::Boolean.build(type) }
-          end
-          unless value_types.all? { |v| v.is_a? coerce_type }
-            raise Grape::Exceptions::IncompatibleOptionValues.new(:type, coerce_type, :values, values)
-          end
+
+          value_types = values.is_a?(Range) ? [values.begin, values.end].compact : values
+          value_types = value_types.map { |type| Grape::API::Boolean.build(type) } if coerce_type == Grape::API::Boolean
+          raise Grape::Exceptions::IncompatibleOptionValues.new(:type, coerce_type, :values, values) unless value_types.all?(coerce_type)
         end
       end
 
       def extract_message_option(attrs)
         return nil unless attrs.is_a?(Array)
+
         opts = attrs.last.is_a?(Hash) ? attrs.pop : {}
         opts.key?(:message) && !opts[:message].nil? ? opts.delete(:message) : nil
       end
@@ -465,20 +518,15 @@ module Grape
 
         {
           allow_blank: allow_blank.is_a?(Hash) ? allow_blank[:value] : allow_blank,
-          fail_fast:   validations.delete(:fail_fast) || false
+          fail_fast: validations.delete(:fail_fast) || false
         }
       end
 
-      def validates_presence(validations, attrs, doc_attrs, opts)
+      def validates_presence(validations, attrs, doc, opts)
         return unless validations.key?(:presence) && validations[:presence]
-        validate(:presence, validations[:presence], attrs, doc_attrs, opts)
-        yield :presence
-        yield :message if validations.key?(:message)
-      end
 
-      def document_attribute(attrs, doc_attrs)
-        full_attrs = attrs.collect { |name| { name: name, full_name: full_name(name) } }
-        @api.document_attribute(full_attrs, doc_attrs)
+        validate('presence', validations.delete(:presence), attrs, doc, opts)
+        validations.delete(:message) if validations.key?(:message)
       end
     end
   end

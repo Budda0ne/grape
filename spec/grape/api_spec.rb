@@ -1,14 +1,11 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
 require 'shared/versioning_examples'
 
 describe Grape::API do
-  subject { Class.new(Grape::API) }
+  subject { Class.new(described_class) }
 
-  def app
-    subject
-  end
+  let(:app) { subject }
 
   describe '.prefix' do
     it 'routes root through with the prefix' do
@@ -18,7 +15,7 @@ describe Grape::API do
       end
 
       get 'awesome/sauce/'
-      expect(last_response.status).to eql 200
+      expect(last_response).to be_successful
       expect(last_response.body).to eql 'Hello there.'
     end
 
@@ -32,7 +29,7 @@ describe Grape::API do
       expect(last_response.body).to eql 'Hello there.'
 
       get '/hello'
-      expect(last_response.status).to eql 404
+      expect(last_response).to be_not_found
     end
 
     it 'supports OPTIONS' do
@@ -42,7 +39,7 @@ describe Grape::API do
       end
 
       options 'awesome/sauce'
-      expect(last_response.status).to eql 204
+      expect(last_response).to be_no_content
       expect(last_response.body).to be_blank
     end
 
@@ -51,7 +48,7 @@ describe Grape::API do
       subject.get
 
       post 'awesome/sauce'
-      expect(last_response.status).to eql 405
+      expect(last_response).to be_method_not_allowed
     end
   end
 
@@ -71,7 +68,7 @@ describe Grape::API do
   end
 
   describe '.version using path' do
-    it_should_behave_like 'versioning' do
+    it_behaves_like 'versioning' do
       let(:macro_options) do
         {
           using: :path
@@ -81,7 +78,7 @@ describe Grape::API do
   end
 
   describe '.version using param' do
-    it_should_behave_like 'versioning' do
+    it_behaves_like 'versioning' do
       let(:macro_options) do
         {
           using: :param,
@@ -92,7 +89,7 @@ describe Grape::API do
   end
 
   describe '.version using header' do
-    it_should_behave_like 'versioning' do
+    it_behaves_like 'versioning' do
       let(:macro_options) do
         {
           using: :header,
@@ -101,26 +98,10 @@ describe Grape::API do
         }
       end
     end
-
-    # Behavior as defined by rfc2616 when no header is defined
-    # http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html
-    describe 'no specified accept header' do
-      # subject.version 'v1', using: :header
-      # subject.get '/hello' do
-      #   'hello'
-      # end
-
-      # it 'routes' do
-      #   get '/hello'
-      #   last_response.status.should eql 200
-      # end
-    end
-
-    # pending 'routes if any media type is allowed'
   end
 
   describe '.version using accept_version_header' do
-    it_should_behave_like 'versioning' do
+    it_behaves_like 'versioning' do
       let(:macro_options) do
         {
           using: :accept_version_header
@@ -255,9 +236,9 @@ describe Grape::API do
       end
 
       get '/users/michael'
-      expect(last_response.status).to eq(404)
+      expect(last_response).to be_not_found
       get '/users/23'
-      expect(last_response.status).to eq(200)
+      expect(last_response).to be_successful
     end
 
     context 'with param type definitions' do
@@ -306,8 +287,10 @@ describe Grape::API do
         end
       end
 
-      after do
-        expect(last_response.body).to eql 'root'
+      shared_examples_for 'a root route' do
+        it 'returns root' do
+          expect(last_response.body).to eql 'root'
+        end
       end
 
       describe 'path versioned APIs' do
@@ -319,56 +302,104 @@ describe Grape::API do
         context 'when a single version provided' do
           let(:version) { 'v1' }
 
-          it 'without a format' do
-            versioned_get '/', 'v1', using: :path
+          context 'without a format' do
+            before do
+              versioned_get '/', 'v1', using: :path
+            end
+
+            it_behaves_like 'a root route'
           end
 
-          it 'with a format' do
-            get '/v1/.json'
+          context 'with a format' do
+            before do
+              get '/v1/.json'
+            end
+
+            it_behaves_like 'a root route'
           end
         end
 
         context 'when array of versions provided' do
           let(:version) { %w[v1 v2] }
 
-          it { versioned_get '/', 'v1', using: :path }
-          it { versioned_get '/', 'v2', using: :path }
+          context 'when v1' do
+            before do
+              versioned_get '/', 'v1', using: :path
+            end
+
+            it_behaves_like 'a root route'
+          end
+
+          context 'when v2' do
+            before do
+              versioned_get '/', 'v2', using: :path
+            end
+
+            it_behaves_like 'a root route'
+          end
         end
       end
 
-      it 'header versioned APIs' do
-        subject.version 'v1', using: :header, vendor: 'test'
-        subject.enable_root_route!
+      context 'when header versioned APIs' do
+        before do
+          subject.version 'v1', using: :header, vendor: 'test'
+          subject.enable_root_route!
+          versioned_get '/', 'v1', using: :header, vendor: 'test'
+        end
 
-        versioned_get '/', 'v1', using: :header, vendor: 'test'
+        it_behaves_like 'a root route'
       end
 
-      it 'header versioned APIs with multiple headers' do
-        subject.version %w[v1 v2], using: :header, vendor: 'test'
-        subject.enable_root_route!
+      context 'when header versioned APIs with multiple headers' do
+        before do
+          subject.version %w[v1 v2], using: :header, vendor: 'test'
+          subject.enable_root_route!
+        end
 
-        versioned_get '/', 'v1', using: :header, vendor: 'test'
-        versioned_get '/', 'v2', using: :header, vendor: 'test'
+        context 'when v1' do
+          before do
+            versioned_get '/', 'v1', using: :header, vendor: 'test'
+          end
+
+          it_behaves_like 'a root route'
+        end
+
+        context 'when v2' do
+          before do
+            versioned_get '/', 'v2', using: :header, vendor: 'test'
+          end
+
+          it_behaves_like 'a root route'
+        end
       end
 
-      it 'param versioned APIs' do
-        subject.version 'v1', using: :param
-        subject.enable_root_route!
+      context 'param versioned APIs' do
+        before do
+          subject.version 'v1', using: :param
+          subject.enable_root_route!
+          versioned_get '/', 'v1', using: :param
+        end
 
-        versioned_get '/', 'v1', using: :param
+        it_behaves_like 'a root route'
       end
 
-      it 'Accept-Version header versioned APIs' do
-        subject.version 'v1', using: :accept_version_header
-        subject.enable_root_route!
+      context 'when Accept-Version header versioned APIs' do
+        before do
+          subject.version 'v1', using: :accept_version_header
+          subject.enable_root_route!
+          versioned_get '/', 'v1', using: :accept_version_header
+        end
 
-        versioned_get '/', 'v1', using: :accept_version_header
+        it_behaves_like 'a root route'
       end
 
-      it 'unversioned APIs' do
-        subject.enable_root_route!
+      context 'unversioned APIss' do
+        before do
+          subject.enable_root_route!
+          get '/'
+        end
 
-        get '/'
+        it_behaves_like 'a root route'
       end
     end
 
@@ -384,29 +415,31 @@ describe Grape::API do
     end
 
     context 'format' do
-      module ApiSpec
-        class DummyFormatClass
-        end
-      end
+      before do
+        dummy_class = Class.new do
+          def to_json(*_rest)
+            'abc'
+          end
 
-      before(:each) do
-        allow_any_instance_of(ApiSpec::DummyFormatClass).to receive(:to_json).and_return('abc')
-        allow_any_instance_of(ApiSpec::DummyFormatClass).to receive(:to_txt).and_return('def')
+          def to_txt
+            'def'
+          end
+        end
 
         subject.get('/abc') do
-          ApiSpec::DummyFormatClass.new
+          dummy_class.new
         end
       end
 
       it 'allows .json' do
         get '/abc.json'
-        expect(last_response.status).to eq(200)
+        expect(last_response).to be_successful
         expect(last_response.body).to eql 'abc' # json-encoded symbol
       end
 
       it 'allows .txt' do
         get '/abc.txt'
-        expect(last_response.status).to eq(200)
+        expect(last_response).to be_successful
         expect(last_response.body).to eql 'def' # raw text
       end
     end
@@ -446,37 +479,40 @@ describe Grape::API do
       expect(last_response.body).to eql 'hiya'
     end
 
+    objects = ['string', :symbol, 1, -1.1, {}, [], true, false, nil].freeze
     %i[put post].each do |verb|
-      context verb do
-        ['string', :symbol, 1, -1.1, {}, [], true, false, nil].each do |object|
+      context verb.to_s do
+        objects.each do |object|
           it "allows a(n) #{object.class} json object in params" do
             subject.format :json
             subject.send(verb) do
-              env['api.request.body']
+              env[Grape::Env::API_REQUEST_BODY]
             end
-            send verb, '/', ::Grape::Json.dump(object), 'CONTENT_TYPE' => 'application/json'
+            send verb, '/', Grape::Json.dump(object), 'CONTENT_TYPE' => 'application/json'
             expect(last_response.status).to eq(verb == :post ? 201 : 200)
-            expect(last_response.body).to eql ::Grape::Json.dump(object)
+            expect(last_response.body).to eql Grape::Json.dump(object)
             expect(last_request.params).to eql({})
           end
+
           it 'stores input in api.request.input' do
             subject.format :json
             subject.send(verb) do
-              env['api.request.input']
+              env[Grape::Env::API_REQUEST_INPUT]
             end
-            send verb, '/', ::Grape::Json.dump(object), 'CONTENT_TYPE' => 'application/json'
+            send verb, '/', Grape::Json.dump(object), 'CONTENT_TYPE' => 'application/json'
             expect(last_response.status).to eq(verb == :post ? 201 : 200)
-            expect(last_response.body).to eql ::Grape::Json.dump(object).to_json
+            expect(last_response.body).to eql Grape::Json.dump(object).to_json
           end
+
           context 'chunked transfer encoding' do
             it 'stores input in api.request.input' do
               subject.format :json
               subject.send(verb) do
-                env['api.request.input']
+                env[Grape::Env::API_REQUEST_INPUT]
               end
-              send verb, '/', ::Grape::Json.dump(object), 'CONTENT_TYPE' => 'application/json', 'HTTP_TRANSFER_ENCODING' => 'chunked', 'CONTENT_LENGTH' => nil
+              send verb, '/', Grape::Json.dump(object), 'CONTENT_TYPE' => 'application/json', Grape::Http::Headers::HTTP_TRANSFER_ENCODING => 'chunked'
               expect(last_response.status).to eq(verb == :post ? 201 : 200)
-              expect(last_response.body).to eql ::Grape::Json.dump(object).to_json
+              expect(last_response.body).to eql Grape::Json.dump(object).to_json
             end
           end
         end
@@ -562,7 +598,8 @@ describe Grape::API do
           send(other_verb, '/example')
           expected_rc = if other_verb == 'options' then 204
                         elsif other_verb == 'head' && verb == 'get' then 200
-                        else 405
+                        else
+                          405
                         end
           expect(last_response.status).to eql expected_rc
         end
@@ -575,7 +612,7 @@ describe Grape::API do
       end
 
       post '/example'
-      expect(last_response.status).to eql 201
+      expect(last_response).to be_created
       expect(last_response.body).to eql 'Created'
     end
 
@@ -585,7 +622,7 @@ describe Grape::API do
         'example'
       end
       put '/example'
-      expect(last_response.status).to eql 405
+      expect(last_response).to be_method_not_allowed
       expect(last_response.body).to eql '405 Not Allowed'
       expect(last_response.headers['X-Custom-Header']).to eql 'foo'
     end
@@ -593,15 +630,17 @@ describe Grape::API do
     it 'runs only the before filter on 405 bad method' do
       subject.namespace :example do
         before            { header 'X-Custom-Header', 'foo' }
+
         before_validation { raise 'before_validation filter should not run' }
         after_validation  { raise 'after_validation filter should not run' }
         after             { raise 'after filter should not run' }
+
         params { requires :only_for_get }
         get
       end
 
       post '/example'
-      expect(last_response.status).to eql 405
+      expect(last_response).to be_method_not_allowed
       expect(last_response.headers['X-Custom-Header']).to eql 'foo'
     end
 
@@ -610,29 +649,33 @@ describe Grape::API do
       subject.namespace :example do
         before do
           raise 'before filter ran twice' if already_run
+
           already_run = true
           header 'X-Custom-Header', 'foo'
         end
+
         get
       end
 
       post '/example'
-      expect(last_response.status).to eql 405
+      expect(last_response).to be_method_not_allowed
       expect(last_response.headers['X-Custom-Header']).to eql 'foo'
     end
 
     it 'runs all filters and body with a custom OPTIONS method' do
       subject.namespace :example do
         before            { header 'X-Custom-Header-1', 'foo' }
+
         before_validation { header 'X-Custom-Header-2', 'foo' }
         after_validation  { header 'X-Custom-Header-3', 'foo' }
         after             { header 'X-Custom-Header-4', 'foo' }
+
         options { 'yup' }
         get
       end
 
       options '/example'
-      expect(last_response.status).to eql 200
+      expect(last_response).to be_successful
       expect(last_response.body).to eql 'yup'
       expect(last_response.headers['Allow']).to be_nil
       expect(last_response.headers['X-Custom-Header-1']).to eql 'foo'
@@ -649,13 +692,13 @@ describe Grape::API do
         end
 
         put '/example'
-        expect(last_response.status).to eql 405
-        expect(last_response.body).to eq <<-XML
-<?xml version="1.0" encoding="UTF-8"?>
-<error>
-  <message>405 Not Allowed</message>
-</error>
-XML
+        expect(last_response).to be_method_not_allowed
+        expect(last_response.body).to eq <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <error>
+            <message>405 Not Allowed</message>
+          </error>
+        XML
       end
     end
 
@@ -669,7 +712,7 @@ XML
           'example'
         end
         put '/example'
-        expect(last_response.status).to eql 405
+        expect(last_response).to be_method_not_allowed
         expect(last_response.body).to eql '405 Not Allowed'
       end
     end
@@ -693,7 +736,7 @@ XML
         'example'
       end
       put '/example'
-      expect(last_response.headers['Content-Type']).to eql 'text/plain'
+      expect(last_response.content_type).to eql 'text/plain'
     end
 
     describe 'adds an OPTIONS route that' do
@@ -713,7 +756,7 @@ XML
       end
 
       it 'returns a 204' do
-        expect(last_response.status).to eql 204
+        expect(last_response).to be_no_content
       end
 
       it 'has an empty body' do
@@ -777,7 +820,7 @@ XML
 
       describe 'it adds an OPTIONS route for namespaced endpoints that' do
         it 'returns a 204' do
-          expect(last_response.status).to eql 204
+          expect(last_response).to be_no_content
         end
 
         it 'has an empty body' do
@@ -795,6 +838,7 @@ XML
         subject.before { header 'X-Custom-Header', 'foo' }
         subject.namespace :example do
           before { header 'X-Custom-Header-2', 'foo' }
+
           get :inner do
             'example/inner'
           end
@@ -803,7 +847,7 @@ XML
       end
 
       it 'returns a 204' do
-        expect(last_response.status).to eql 204
+        expect(last_response).to be_no_content
       end
 
       it 'has an empty body' do
@@ -841,7 +885,7 @@ XML
       end
 
       it 'returns a 405' do
-        expect(last_response.status).to eql 405
+        expect(last_response).to be_method_not_allowed
       end
 
       it 'contains error message in body' do
@@ -857,7 +901,7 @@ XML
       end
     end
 
-    describe 'when hook behaviour is controlled by attributes on the route ' do
+    describe 'when hook behaviour is controlled by attributes on the route' do
       before do
         subject.before do
           error!('Access Denied', 401) unless route.options[:secret] == params[:secret]
@@ -880,28 +924,31 @@ XML
         let(:response) { delete('/example') }
 
         it 'responds with a 405 status' do
-          expect(response.status).to eql 405
+          expect(response).to be_method_not_allowed
         end
       end
 
       context 'when HTTP method is defined with attribute' do
         let(:response) { post('/example?secret=incorrect_password') }
+
         it 'responds with the defined error in the before hook' do
-          expect(response.status).to eql 401
+          expect(response).to be_unauthorized
         end
       end
 
       context 'when HTTP method is defined and the underlying before hook expectation is not met' do
         let(:response) { post('/example?secret=password&namespace_secret=wrong_namespace_password') }
+
         it 'ends up in the endpoint' do
-          expect(response.status).to eql 401
+          expect(response).to be_unauthorized
         end
       end
 
       context 'when HTTP method is defined and everything is like the before hooks expect' do
         let(:response) { post('/example?secret=password&namespace_secret=namespace_password') }
+
         it 'ends up in the endpoint' do
-          expect(response.status).to eql 201
+          expect(response).to be_created
         end
       end
 
@@ -909,7 +956,7 @@ XML
         let(:response) { head('/example?id=504') }
 
         it 'responds with 401 because before expectations in before hooks are not met' do
-          expect(response.status).to eql 401
+          expect(response).to be_unauthorized
         end
       end
 
@@ -917,7 +964,7 @@ XML
         let(:response) { head('/example?id=504&secret=password') }
 
         it 'responds with 200 because before hooks are not called' do
-          expect(response.status).to eql 200
+          expect(response).to be_successful
         end
       end
     end
@@ -934,7 +981,7 @@ XML
       end
 
       it 'returns a 200' do
-        expect(last_response.status).to eql 200
+        expect(last_response).to be_successful
       end
 
       it 'has an empty body' do
@@ -950,31 +997,33 @@ XML
         'example'
       end
       head '/example'
-      expect(last_response.status).to eql 400
+      expect(last_response).to be_bad_request
     end
   end
 
   context 'do_not_route_head!' do
-    before :each do
+    before do
       subject.do_not_route_head!
       subject.get 'example' do
         'example'
       end
     end
+
     it 'options does not contain HEAD' do
       options '/example'
-      expect(last_response.status).to eql 204
+      expect(last_response).to be_no_content
       expect(last_response.body).to eql ''
       expect(last_response.headers['Allow']).to eql 'OPTIONS, GET'
     end
+
     it 'does not allow HEAD on a GET request' do
       head '/example'
-      expect(last_response.status).to eql 405
+      expect(last_response).to be_method_not_allowed
     end
   end
 
   context 'do_not_route_options!' do
-    before :each do
+    before do
       subject.do_not_route_options!
       subject.get 'example' do
         'example'
@@ -983,25 +1032,25 @@ XML
 
     it 'does not create an OPTIONS route' do
       options '/example'
-      expect(last_response.status).to eql 405
+      expect(last_response).to be_method_not_allowed
     end
 
     it 'does not include OPTIONS in Allow header' do
       options '/example'
-      expect(last_response.status).to eql 405
+      expect(last_response).to be_method_not_allowed
       expect(last_response.headers['Allow']).to eql 'GET, HEAD'
     end
   end
 
   describe '.compile!' do
-    it 'requires the grape/eager_load file' do
-      expect(app).to receive(:require).with('grape/eager_load') { nil }
-      app.compile!
+    let(:base_instance) { app.base_instance }
+
+    before do
+      allow(base_instance).to receive(:compile!).and_return(:compiled!)
     end
 
-    it 'compiles the instance for rack!' do
-      stubbed_object = double(:instance_for_rack)
-      allow(app).to receive(:instance_for_rack) { stubbed_object }
+    it 'returns compiled!' do
+      expect(app.send(:compile!)).to eq(:compiled!)
     end
   end
 
@@ -1017,7 +1066,7 @@ XML
     context 'when the app was mounted' do
       it 'returns the first mounted instance' do
         mounted_app = app
-        Class.new(Grape::API) do
+        Class.new(described_class) do
           namespace 'new_namespace' do
             mount mounted_app
           end
@@ -1045,6 +1094,7 @@ XML
       end
       subject.namespace :blah do
         before { @foo = 'foo' }
+
         get '/' do
           "blah - #{@foo}"
         end
@@ -1086,7 +1136,7 @@ XML
         @var ||= 'default'
       end
 
-      expect(m).to receive(:do_something!).exactly(2).times
+      expect(m).to receive(:do_something!).twice
       get '/'
       expect(last_response.body).to eql 'default'
     end
@@ -1102,21 +1152,23 @@ XML
       end
       subject.resource ':id' do
         before { a.do_something! }
+
         before_validation { b.do_something! }
         after_validation { c.do_something! }
         after { d.do_something! }
+
         get do
           'got it'
         end
       end
 
-      expect(a).to receive(:do_something!).exactly(1).times
-      expect(b).to receive(:do_something!).exactly(1).times
-      expect(c).to receive(:do_something!).exactly(1).times
-      expect(d).to receive(:do_something!).exactly(1).times
+      expect(a).to receive(:do_something!).once
+      expect(b).to receive(:do_something!).once
+      expect(c).to receive(:do_something!).once
+      expect(d).to receive(:do_something!).once
 
       get '/123'
-      expect(last_response.status).to eql 200
+      expect(last_response).to be_successful
       expect(last_response.body).to eql 'got it'
     end
 
@@ -1127,26 +1179,28 @@ XML
       d = double('after mock')
 
       subject.params do
-        requires :id, type: Integer
+        requires :id, type: Integer, values: [1, 2, 3]
       end
       subject.resource ':id' do
         before { a.do_something! }
+
         before_validation { b.do_something! }
         after_validation { c.do_something! }
         after { d.do_something! }
+
         get do
           'got it'
         end
       end
 
-      expect(a).to receive(:do_something!).exactly(1).times
-      expect(b).to receive(:do_something!).exactly(1).times
+      expect(a).to receive(:do_something!).once
+      expect(b).to receive(:do_something!).once
       expect(c).to receive(:do_something!).exactly(0).times
       expect(d).to receive(:do_something!).exactly(0).times
 
-      get '/abc'
-      expect(last_response.status).to eql 400
-      expect(last_response.body).to eql 'id is invalid'
+      get '/4'
+      expect(last_response).to be_bad_request
+      expect(last_response.body).to eql 'id does not have a valid value'
     end
 
     it 'calls filters in the correct order' do
@@ -1161,21 +1215,23 @@ XML
       end
       subject.resource ':id' do
         before { a.here(i += 1) }
+
         before_validation { b.here(i += 1) }
         after_validation { c.here(i += 1) }
         after { d.here(i += 1) }
+
         get do
           'got it'
         end
       end
 
-      expect(a).to receive(:here).with(1).exactly(1).times
-      expect(b).to receive(:here).with(2).exactly(1).times
-      expect(c).to receive(:here).with(3).exactly(1).times
-      expect(d).to receive(:here).with(4).exactly(1).times
+      expect(a).to receive(:here).with(1).once
+      expect(b).to receive(:here).with(2).once
+      expect(c).to receive(:here).with(3).once
+      expect(d).to receive(:here).with(4).once
 
       get '/123'
-      expect(last_response.status).to eql 200
+      expect(last_response).to be_successful
       expect(last_response.body).to eql 'got it'
     end
   end
@@ -1187,41 +1243,41 @@ XML
 
     it 'sets content type for txt format' do
       get '/foo'
-      expect(last_response.headers['Content-Type']).to eq('text/plain')
+      expect(last_response.content_type).to eq('text/plain')
     end
 
     it 'does not set Cache-Control' do
       get '/foo'
-      expect(last_response.headers['Cache-Control']).to eq(nil)
+      expect(last_response.headers[Rack::CACHE_CONTROL]).to be_nil
     end
 
     it 'sets content type for xml' do
       get '/foo.xml'
-      expect(last_response.headers['Content-Type']).to eq('application/xml')
+      expect(last_response.content_type).to eq('application/xml')
     end
 
     it 'sets content type for json' do
       get '/foo.json'
-      expect(last_response.headers['Content-Type']).to eq('application/json')
+      expect(last_response.content_type).to eq('application/json')
     end
 
     it 'sets content type for serializable hash format' do
       get '/foo.serializable_hash'
-      expect(last_response.headers['Content-Type']).to eq('application/json')
+      expect(last_response.content_type).to eq('application/json')
     end
 
     it 'sets content type for binary format' do
       get '/foo.binary'
-      expect(last_response.headers['Content-Type']).to eq('application/octet-stream')
+      expect(last_response.content_type).to eq('application/octet-stream')
     end
 
     it 'returns raw data when content type binary' do
       image_filename = 'grape.png'
-      file = File.open(image_filename, 'rb', &:read)
+      file = File.binread(image_filename)
       subject.format :binary
       subject.get('/binary_file') { File.binread(image_filename) }
       get '/binary_file'
-      expect(last_response.headers['Content-Type']).to eq('application/octet-stream')
+      expect(last_response.content_type).to eq('application/octet-stream')
       expect(last_response.body).to eq(file)
     end
 
@@ -1231,10 +1287,10 @@ XML
       test_file.write file_content
       test_file.rewind
 
-      subject.get('/file') { file test_file }
+      subject.get('/file') { stream test_file }
       get '/file'
-      expect(last_response.headers['Content-Length']).to eq('25')
-      expect(last_response.headers['Content-Type']).to eq('text/plain')
+      expect(last_response.content_length).to eq(25)
+      expect(last_response.content_type).to eq('text/plain')
       expect(last_response.body).to eq(file_content)
     end
 
@@ -1244,14 +1300,14 @@ XML
         blk.yield ' file content'
       end
 
-      subject.use Rack::Chunked
+      subject.use Gem::Version.new(Rack.release) < Gem::Version.new('3') ? Rack::Chunked : ChunkedResponse
       subject.get('/stream') { stream test_stream }
-      get '/stream', {}, 'HTTP_VERSION' => 'HTTP/1.1', 'SERVER_PROTOCOL' => 'HTTP/1.1'
+      get '/stream', {}, 'HTTP_VERSION' => 'HTTP/1.1', Rack::SERVER_PROTOCOL => 'HTTP/1.1'
 
-      expect(last_response.headers['Content-Type']).to eq('text/plain')
-      expect(last_response.headers['Content-Length']).to eq(nil)
-      expect(last_response.headers['Cache-Control']).to eq('no-cache')
-      expect(last_response.headers['Transfer-Encoding']).to eq('chunked')
+      expect(last_response.content_type).to eq('text/plain')
+      expect(last_response.content_length).to be_nil
+      expect(last_response.headers[Rack::CACHE_CONTROL]).to eq('no-cache')
+      expect(last_response.headers[Grape::Http::Headers::TRANSFER_ENCODING]).to eq('chunked')
 
       expect(last_response.body).to eq("c\r\nThis is some\r\nd\r\n file content\r\n0\r\n\r\n")
     end
@@ -1259,30 +1315,30 @@ XML
     it 'sets content type for error' do
       subject.get('/error') { error!('error in plain text', 500) }
       get '/error'
-      expect(last_response.headers['Content-Type']).to eql 'text/plain'
+      expect(last_response.content_type).to eql 'text/plain'
     end
 
     it 'sets content type for json error' do
       subject.format :json
       subject.get('/error') { error!('error in json', 500) }
       get '/error.json'
-      expect(last_response.status).to eql 500
-      expect(last_response.headers['Content-Type']).to eql 'application/json'
+      expect(last_response).to be_server_error
+      expect(last_response.content_type).to eql 'application/json'
     end
 
     it 'sets content type for xml error' do
       subject.format :xml
       subject.get('/error') { error!('error in xml', 500) }
       get '/error'
-      expect(last_response.status).to eql 500
-      expect(last_response.headers['Content-Type']).to eql 'application/xml'
+      expect(last_response).to be_server_error
+      expect(last_response.content_type).to eql 'application/xml'
     end
 
     it 'includes extension in format' do
       subject.get(':id') { params[:format] }
 
       get '/baz.bar'
-      expect(last_response.status).to eq 200
+      expect(last_response).to be_successful
       expect(last_response.body).to eq 'bar'
     end
 
@@ -1291,7 +1347,7 @@ XML
       subject.get(':id') { params }
 
       get '/baz.bar'
-      expect(last_response.status).to eq 404
+      expect(last_response).to be_not_found
     end
 
     context 'with a custom content_type' do
@@ -1305,55 +1361,64 @@ XML
 
       it 'sets content type' do
         get '/custom.custom'
-        expect(last_response.headers['Content-Type']).to eql 'application/custom'
+        expect(last_response.content_type).to eql 'application/custom'
       end
 
       it 'sets content type for error' do
         get '/error.custom'
-        expect(last_response.headers['Content-Type']).to eql 'application/custom'
+        expect(last_response.content_type).to eql 'application/custom'
       end
     end
 
     context 'env["api.format"]' do
       before do
+        ct = content_type
         subject.post 'attachment' do
           filename = params[:file][:filename]
-          content_type MIME::Types.type_for(filename)[0].to_s
-          env['api.format'] = :binary # there's no formatter for :binary, data will be returned "as is"
+          content_type ct
+          env[Grape::Env::API_FORMAT] = :binary # there's no formatter for :binary, data will be returned "as is"
           header 'Content-Disposition', "attachment; filename*=UTF-8''#{CGI.escape(filename)}"
           params[:file][:tempfile].read
         end
       end
 
-      ['/attachment.png', 'attachment'].each do |url|
-        it "uploads and downloads a PNG file via #{url}" do
-          image_filename = 'grape.png'
-          post url, file: Rack::Test::UploadedFile.new(image_filename, 'image/png', true)
-          expect(last_response.status).to eq(201)
-          expect(last_response.headers['Content-Type']).to eq('image/png')
-          expect(last_response.headers['Content-Disposition']).to eq("attachment; filename*=UTF-8''grape.png")
-          File.open(image_filename, 'rb') do |io|
-            expect(last_response.body).to eq io.read
+      context 'when image/png' do
+        let(:content_type) { 'image/png' }
+
+        %w[/attachment.png attachment].each do |url|
+          it "uploads and downloads a PNG file via #{url}" do
+            image_filename = 'grape.png'
+            post url, file: Rack::Test::UploadedFile.new(image_filename, content_type, true)
+            expect(last_response).to be_created
+            expect(last_response.content_type).to eq(content_type)
+            expect(last_response.headers['Content-Disposition']).to eq("attachment; filename*=UTF-8''grape.png")
+            File.open(image_filename, 'rb') do |io|
+              expect(last_response.body).to eq io.read
+            end
           end
         end
       end
 
-      it 'uploads and downloads a Ruby file' do
-        filename = __FILE__
-        post '/attachment.rb', file: Rack::Test::UploadedFile.new(filename, 'application/x-ruby', true)
-        expect(last_response.status).to eq(201)
-        expect(last_response.headers['Content-Type']).to eq('application/x-ruby')
-        expect(last_response.headers['Content-Disposition']).to eq("attachment; filename*=UTF-8''api_spec.rb")
-        File.open(filename, 'rb') do |io|
-          expect(last_response.body).to eq io.read
+      context 'when ruby file' do
+        let(:content_type) { 'application/x-ruby' }
+
+        it 'uploads and downloads a Ruby file' do
+          filename = __FILE__
+          post '/attachment.rb', file: Rack::Test::UploadedFile.new(filename, content_type, true)
+          expect(last_response).to be_created
+          expect(last_response.content_type).to eq(content_type)
+          expect(last_response.headers['Content-Disposition']).to eq("attachment; filename*=UTF-8''api_spec.rb")
+          File.open(filename, 'rb') do |io|
+            expect(last_response.body).to eq io.read
+          end
         end
       end
     end
   end
 
   context 'custom middleware' do
-    module ApiSpec
-      class PhonyMiddleware
+    let(:phony_middleware) do
+      Class.new do
         def initialize(app, *args)
           @args = args
           @app = app
@@ -1371,43 +1436,44 @@ XML
 
     describe '.middleware' do
       it 'includes middleware arguments from settings' do
-        subject.use ApiSpec::PhonyMiddleware, 'abc', 123
-        expect(subject.middleware).to eql [[:use, ApiSpec::PhonyMiddleware, 'abc', 123]]
+        subject.use phony_middleware, 'abc', 123
+        expect(subject.middleware).to eql [[:use, phony_middleware, 'abc', 123]]
       end
 
       it 'includes all middleware from stacked settings' do
-        subject.use ApiSpec::PhonyMiddleware, 123
-        subject.use ApiSpec::PhonyMiddleware, 'abc'
-        subject.use ApiSpec::PhonyMiddleware, 'foo'
+        subject.use phony_middleware, 123
+        subject.use phony_middleware, 'abc'
+        subject.use phony_middleware, 'foo'
 
         expect(subject.middleware).to eql [
-          [:use, ApiSpec::PhonyMiddleware, 123],
-          [:use, ApiSpec::PhonyMiddleware, 'abc'],
-          [:use, ApiSpec::PhonyMiddleware, 'foo']
+          [:use, phony_middleware, 123],
+          [:use, phony_middleware, 'abc'],
+          [:use, phony_middleware, 'foo']
         ]
       end
     end
 
     describe '.use' do
       it 'adds middleware' do
-        subject.use ApiSpec::PhonyMiddleware, 123
-        expect(subject.middleware).to eql [[:use, ApiSpec::PhonyMiddleware, 123]]
+        subject.use phony_middleware, 123
+        expect(subject.middleware).to eql [[:use, phony_middleware, 123]]
       end
 
       it 'does not show up outside the namespace' do
+        example = self
         inner_middleware = nil
-        subject.use ApiSpec::PhonyMiddleware, 123
+        subject.use phony_middleware, 123
         subject.namespace :awesome do
-          use ApiSpec::PhonyMiddleware, 'abc'
+          use example.phony_middleware, 'abc'
           inner_middleware = middleware
         end
 
-        expect(subject.middleware).to eql [[:use, ApiSpec::PhonyMiddleware, 123]]
-        expect(inner_middleware).to eql [[:use, ApiSpec::PhonyMiddleware, 123], [:use, ApiSpec::PhonyMiddleware, 'abc']]
+        expect(subject.middleware).to eql [[:use, phony_middleware, 123]]
+        expect(inner_middleware).to eql [[:use, phony_middleware, 123], [:use, phony_middleware, 'abc']]
       end
 
       it 'calls the middleware' do
-        subject.use ApiSpec::PhonyMiddleware, 'hello'
+        subject.use phony_middleware, 'hello'
         subject.get '/' do
           env['phony.args'].first.first
         end
@@ -1418,13 +1484,13 @@ XML
 
       it 'adds a block if one is given' do
         block = -> {}
-        subject.use ApiSpec::PhonyMiddleware, &block
-        expect(subject.middleware).to eql [[:use, ApiSpec::PhonyMiddleware, block]]
+        subject.use phony_middleware, &block
+        expect(subject.middleware).to eql [[:use, phony_middleware, block]]
       end
 
       it 'uses a block if one is given' do
         block = -> {}
-        subject.use ApiSpec::PhonyMiddleware, &block
+        subject.use phony_middleware, &block
         subject.get '/' do
           env['phony.block'].inspect
         end
@@ -1435,7 +1501,7 @@ XML
 
       it 'does not destroy the middleware settings on multiple runs' do
         block = -> {}
-        subject.use ApiSpec::PhonyMiddleware, &block
+        subject.use phony_middleware, &block
         subject.get '/' do
           env['phony.block'].inspect
         end
@@ -1456,7 +1522,7 @@ XML
         subject.get '/' do
         end
         get '/'
-        expect(last_response.status).to eq(400)
+        expect(last_response).to be_bad_request
         expect(last_response.body).to eq('Caught in the Net')
       end
     end
@@ -1471,8 +1537,8 @@ XML
           end
         end
 
-        subject.use ApiSpec::PhonyMiddleware, 'hello'
-        subject.insert_before ApiSpec::PhonyMiddleware, m, message: 'bye'
+        subject.use phony_middleware, 'hello'
+        subject.insert_before phony_middleware, m, message: 'bye'
         subject.get '/' do
           env['phony.args'].join(' ')
         end
@@ -1492,8 +1558,8 @@ XML
           end
         end
 
-        subject.use ApiSpec::PhonyMiddleware, 'hello'
-        subject.insert_after ApiSpec::PhonyMiddleware, m, message: 'bye'
+        subject.use phony_middleware, 'hello'
+        subject.insert_after phony_middleware, m, message: 'bye'
         subject.get '/' do
           env['phony.args'].join(' ')
         end
@@ -1502,27 +1568,27 @@ XML
         expect(last_response.body).to eql 'hello bye'
       end
     end
-  end
 
-  describe '.insert' do
-    it 'inserts middleware in a specific location in the stack' do
-      m = Class.new(Grape::Middleware::Base) do
-        def call(env)
-          env['phony.args'] ||= []
-          env['phony.args'] << @options[:message]
-          @app.call(env)
+    describe '.insert' do
+      it 'inserts middleware in a specific location in the stack' do
+        m = Class.new(Grape::Middleware::Base) do
+          def call(env)
+            env['phony.args'] ||= []
+            env['phony.args'] << @options[:message]
+            @app.call(env)
+          end
         end
-      end
 
-      subject.use ApiSpec::PhonyMiddleware, 'bye'
-      subject.insert 0, m, message: 'good'
-      subject.insert 0, m, message: 'hello'
-      subject.get '/' do
-        env['phony.args'].join(' ')
-      end
+        subject.use phony_middleware, 'bye'
+        subject.insert 0, m, message: 'good'
+        subject.insert 0, m, message: 'hello'
+        subject.get '/' do
+          env['phony.args'].join(' ')
+        end
 
-      get '/'
-      expect(last_response.body).to eql 'hello good bye'
+        get '/'
+        expect(last_response.body).to eql 'hello good bye'
+      end
     end
   end
 
@@ -1533,9 +1599,9 @@ XML
       end
       subject.get(:hello) { 'Hello, world.' }
       get '/hello'
-      expect(last_response.status).to eql 401
+      expect(last_response).to be_unauthorized
       get '/hello', {}, 'HTTP_AUTHORIZATION' => encode_basic_auth('allow', 'whatever')
-      expect(last_response.status).to eql 200
+      expect(last_response).to be_successful
     end
 
     it 'is scopable' do
@@ -1549,9 +1615,9 @@ XML
       end
 
       get '/hello'
-      expect(last_response.status).to eql 200
+      expect(last_response).to be_successful
       get '/admin/hello'
-      expect(last_response.status).to eql 401
+      expect(last_response).to be_unauthorized
     end
 
     it 'is callable via .auth as well' do
@@ -1561,9 +1627,9 @@ XML
 
       subject.get(:hello) { 'Hello, world.' }
       get '/hello'
-      expect(last_response.status).to eql 401
+      expect(last_response).to be_unauthorized
       get '/hello', {}, 'HTTP_AUTHORIZATION' => encode_basic_auth('allow', 'whatever')
-      expect(last_response.status).to eql 200
+      expect(last_response).to be_successful
     end
 
     it 'has access to the current endpoint' do
@@ -1577,13 +1643,13 @@ XML
 
       subject.get(:hello) { 'Hello, world.' }
       get '/hello', {}, 'HTTP_AUTHORIZATION' => encode_basic_auth('allow', 'whatever')
-      expect(basic_auth_context).to be_a_kind_of(Grape::Endpoint)
+      expect(basic_auth_context).to be_a(Grape::Endpoint)
     end
 
     it 'has access to helper methods' do
       subject.helpers do
-        def authorize(u, p)
-          u == 'allow' && p == 'whatever'
+        def authorize(user, password)
+          user == 'allow' && password == 'whatever'
         end
       end
 
@@ -1593,9 +1659,9 @@ XML
 
       subject.get(:hello) { 'Hello, world.' }
       get '/hello', {}, 'HTTP_AUTHORIZATION' => encode_basic_auth('allow', 'whatever')
-      expect(last_response.status).to eql 200
+      expect(last_response).to be_successful
       get '/hello', {}, 'HTTP_AUTHORIZATION' => encode_basic_auth('disallow', 'whatever')
-      expect(last_response.status).to eql 401
+      expect(last_response).to be_unauthorized
     end
 
     it 'can set instance variables accessible to routes' do
@@ -1607,44 +1673,36 @@ XML
 
       subject.get(:hello) { @hello }
       get '/hello', {}, 'HTTP_AUTHORIZATION' => encode_basic_auth('allow', 'whatever')
-      expect(last_response.status).to eql 200
+      expect(last_response).to be_successful
       expect(last_response.body).to eql 'Hello, world.'
     end
   end
 
   describe '.logger' do
-    subject do
-      Class.new(Grape::API) do
-        def self.io
-          @io ||= StringIO.new
-        end
-        logger ::Logger.new(io)
-      end
-    end
-
     it 'returns an instance of Logger class by default' do
       expect(subject.logger.class).to eql Logger
     end
 
-    it 'allows setting a custom logger' do
-      mylogger = Class.new
-      subject.logger mylogger
-      expect(mylogger).to receive(:info).exactly(1).times
-      subject.logger.info 'this will be logged'
-    end
+    context 'with a custom logger' do
+      subject do
+        Class.new(described_class) do
+          def self.io
+            @io ||= StringIO.new
+          end
+          logger Logger.new(io)
+        end
+      end
 
-    it 'defaults to a standard logger log format' do
-      t = Time.at(100)
-      allow(Time).to receive(:now).and_return(t)
-      message = "this will be logged\n"
-      message = "I, [#{Logger::Formatter.new.send(:format_datetime, t)}\##{Process.pid}]  INFO -- : #{message}" if !defined?(Rails) || Gem::Version.new(Rails::VERSION::STRING) >= Gem::Version.new('4.0')
-      expect(subject.io).to receive(:write).with(message)
-      subject.logger.info 'this will be logged'
+      it 'exposes its interaface' do
+        message = 'this will be logged'
+        subject.logger.info message
+        expect(subject.io.string).to include(message)
+      end
     end
 
     it 'does not unnecessarily retain duplicate setup blocks' do
       subject.logger
-      expect { subject.logger }.to_not change(subject.instance_variable_get(:@setup), :size)
+      expect { subject.logger }.not_to change(subject.instance_variable_get(:@setup), :size)
     end
   end
 
@@ -1770,13 +1828,13 @@ XML
       end
 
       get '/new/abc'
-      expect(last_response.status).to eql 404
+      expect(last_response).to be_not_found
       get '/legacy/abc'
-      expect(last_response.status).to eql 200
+      expect(last_response).to be_successful
       get '/legacy/def'
-      expect(last_response.status).to eql 404
+      expect(last_response).to be_not_found
       get '/new/def'
-      expect(last_response.status).to eql 200
+      expect(last_response).to be_successful
     end
   end
 
@@ -1996,32 +2054,49 @@ XML
     end
 
     context 'with multiple apis' do
-      let(:a) { Class.new(Grape::API) }
-      let(:b) { Class.new(Grape::API) }
+      let(:a) do
+        Class.new(described_class) do
+          namespace :a do
+            helpers do
+              def foo
+                error!('foo', 401)
+              end
+            end
+
+            rescue_from(:all) { foo }
+
+            get { raise 'boo' }
+          end
+        end
+      end
+      let(:b) do
+        Class.new(described_class) do
+          namespace :b do
+            helpers do
+              def foo
+                error!('bar', 401)
+              end
+            end
+
+            rescue_from(:all) { foo }
+
+            get { raise 'boo' }
+          end
+        end
+      end
 
       before do
-        a.helpers do
-          def foo
-            error!('foo', 401)
-          end
-        end
-        a.rescue_from(:all) { foo }
-        a.get { raise 'boo' }
-        b.helpers do
-          def foo
-            error!('bar', 401)
-          end
-        end
-        b.rescue_from(:all) { foo }
-        b.get { raise 'boo' }
+        subject.mount a
+        subject.mount b
       end
 
       it 'avoids polluting global namespace' do
-        env = Rack::MockRequest.env_for('/')
-
-        expect(read_chunks(a.call(env)[2])).to eq(['foo'])
-        expect(read_chunks(b.call(env)[2])).to eq(['bar'])
-        expect(read_chunks(a.call(env)[2])).to eq(['foo'])
+        get '/a'
+        expect(last_response.body).to eq('foo')
+        get '/b'
+        expect(last_response.body).to eq('bar')
+        get '/a'
+        expect(last_response.body).to eq('foo')
       end
     end
 
@@ -2031,7 +2106,7 @@ XML
         raise 'rain!'
       end
       get '/exception'
-      expect(last_response.status).to eql 500
+      expect(last_response).to be_server_error
       expect(last_response.body).to eq 'rain!'
     end
 
@@ -2043,7 +2118,7 @@ XML
         raise 'rain!'
       end
       get '/exception'
-      expect(last_response.status).to eql 500
+      expect(last_response).to be_server_error
       expect(last_response.body).to eq({ error: 'rain!' }.to_json)
     end
 
@@ -2053,7 +2128,7 @@ XML
       subject.get('/unrescued') { raise 'beefcake' }
 
       get '/rescued'
-      expect(last_response.status).to eql 500
+      expect(last_response).to be_server_error
 
       expect { get '/unrescued' }.to raise_error(RuntimeError, 'beefcake')
     end
@@ -2072,17 +2147,15 @@ XML
       subject.get('/standard_error') { raise StandardError }
 
       get '/child_of_standard_error'
-      expect(last_response.status).to eql 402
+      expect(last_response.status).to be 402
 
       get '/standard_error'
-      expect(last_response.status).to eql 401
+      expect(last_response).to be_unauthorized
     end
 
     context 'CustomError subclass of Grape::Exceptions::Base' do
       before do
-        module ApiSpec
-          class CustomError < Grape::Exceptions::Base; end
-        end
+        stub_const('ApiSpec::CustomError', Class.new(Grape::Exceptions::Base))
       end
 
       it 'does not re-raise exceptions of type Grape::Exceptions::Base' do
@@ -2093,14 +2166,14 @@ XML
 
       it 'rescues custom grape exceptions' do
         subject.rescue_from ApiSpec::CustomError do |e|
-          rack_response('New Error', e.status)
+          error!('New Error', e.status)
         end
         subject.get '/custom_error' do
           raise ApiSpec::CustomError.new(status: 400, message: 'Custom Error')
         end
 
         get '/custom_error'
-        expect(last_response.status).to eq(400)
+        expect(last_response).to be_bad_request
         expect(last_response.body).to eq('New Error')
       end
     end
@@ -2111,85 +2184,88 @@ XML
       allow(Grape::Formatter).to receive(:formatter_for) { formatter }
 
       subject.rescue_from :all do |_e|
-        rack_response('Formatter Error', 500)
+        error!('Formatter Error', 500)
       end
       subject.get('/formatter_exception') { 'Hello world' }
 
       get '/formatter_exception'
-      expect(last_response.status).to eql 500
+      expect(last_response).to be_server_error
       expect(last_response.body).to eq('Formatter Error')
     end
 
-    it 'uses default_rescue_handler to handle invalid response from rescue_from' do
-      subject.rescue_from(:all) { 'error' }
-      subject.get('/') { raise }
-
-      expect_any_instance_of(Grape::Middleware::Error).to receive(:default_rescue_handler).and_call_original
-      get '/'
-      expect(last_response.status).to eql 500
-      expect(last_response.body).to eql 'Invalid response'
+    context 'when rescue_from block returns an invalid response' do
+      it 'returns a formatted response' do
+        subject.rescue_from(:all) { 'error' }
+        subject.get('/') { raise }
+        get '/'
+        expect(last_response).to be_server_error
+        expect(last_response.body).to eql 'Invalid response'
+      end
     end
   end
 
   describe '.rescue_from klass, block' do
     it 'rescues Exception' do
       subject.rescue_from RuntimeError do |e|
-        rack_response("rescued from #{e.message}", 202)
+        error!("rescued from #{e.message}", 202)
       end
       subject.get '/exception' do
         raise 'rain!'
       end
       get '/exception'
-      expect(last_response.status).to eql 202
+      expect(last_response).to be_accepted
       expect(last_response.body).to eq('rescued from rain!')
     end
 
     context 'custom errors' do
       before do
-        class ConnectionError < RuntimeError; end
-        class DatabaseError < RuntimeError; end
-        class CommunicationError < StandardError; end
+        stub_const('ConnectionError', Class.new(RuntimeError))
+        stub_const('DatabaseError', Class.new(RuntimeError))
+        stub_const('CommunicationError', Class.new(StandardError))
       end
 
       it 'rescues an error via rescue_from :all' do
         subject.rescue_from :all do |e|
-          rack_response("rescued from #{e.class.name}", 500)
+          error!("rescued from #{e.class.name}", 500)
         end
         subject.get '/exception' do
           raise ConnectionError
         end
         get '/exception'
-        expect(last_response.status).to eql 500
+        expect(last_response).to be_server_error
         expect(last_response.body).to eq('rescued from ConnectionError')
       end
+
       it 'rescues a specific error' do
         subject.rescue_from ConnectionError do |e|
-          rack_response("rescued from #{e.class.name}", 500)
+          error!("rescued from #{e.class.name}", 500)
         end
         subject.get '/exception' do
           raise ConnectionError
         end
         get '/exception'
-        expect(last_response.status).to eql 500
+        expect(last_response).to be_server_error
         expect(last_response.body).to eq('rescued from ConnectionError')
       end
+
       it 'rescues a subclass of an error by default' do
         subject.rescue_from RuntimeError do |e|
-          rack_response("rescued from #{e.class.name}", 500)
+          error!("rescued from #{e.class.name}", 500)
         end
         subject.get '/exception' do
           raise ConnectionError
         end
         get '/exception'
-        expect(last_response.status).to eql 500
+        expect(last_response).to be_server_error
         expect(last_response.body).to eq('rescued from ConnectionError')
       end
+
       it 'rescues multiple specific errors' do
         subject.rescue_from ConnectionError do |e|
-          rack_response("rescued from #{e.class.name}", 500)
+          error!("rescued from #{e.class.name}", 500)
         end
         subject.rescue_from DatabaseError do |e|
-          rack_response("rescued from #{e.class.name}", 500)
+          error!("rescued from #{e.class.name}", 500)
         end
         subject.get '/connection' do
           raise ConnectionError
@@ -2198,15 +2274,16 @@ XML
           raise DatabaseError
         end
         get '/connection'
-        expect(last_response.status).to eql 500
+        expect(last_response).to be_server_error
         expect(last_response.body).to eq('rescued from ConnectionError')
         get '/database'
-        expect(last_response.status).to eql 500
+        expect(last_response).to be_server_error
         expect(last_response.body).to eq('rescued from DatabaseError')
       end
+
       it 'does not rescue a different error' do
         subject.rescue_from RuntimeError do |e|
-          rack_response("rescued from #{e.class.name}", 500)
+          error!("rescued from #{e.class.name}", 500)
         end
         subject.get '/uncaught' do
           raise CommunicationError
@@ -2219,23 +2296,23 @@ XML
   describe '.rescue_from klass, lambda' do
     it 'rescues an error with the lambda' do
       subject.rescue_from ArgumentError, lambda {
-        rack_response('rescued with a lambda', 400)
+        error!('rescued with a lambda', 400)
       }
       subject.get('/rescue_lambda') { raise ArgumentError }
 
       get '/rescue_lambda'
-      expect(last_response.status).to eq(400)
+      expect(last_response).to be_bad_request
       expect(last_response.body).to eq('rescued with a lambda')
     end
 
     it 'can execute the lambda with an argument' do
       subject.rescue_from ArgumentError, lambda { |e|
-        rack_response(e.message, 400)
+        error!(e.message, 400)
       }
       subject.get('/rescue_lambda') { raise ArgumentError, 'lambda takes an argument' }
 
       get '/rescue_lambda'
-      expect(last_response.status).to eq(400)
+      expect(last_response).to be_bad_request
       expect(last_response.body).to eq('lambda takes an argument')
     end
   end
@@ -2257,11 +2334,11 @@ XML
       subject.get('/rescue_no_method_error') { raise NoMethodError }
 
       get '/rescue_arg_error'
-      expect(last_response.status).to eq(500)
+      expect(last_response).to be_server_error
       expect(last_response.body).to eq('500 ArgumentError')
 
       get '/rescue_no_method_error'
-      expect(last_response.status).to eq(500)
+      expect(last_response).to be_server_error
       expect(last_response.body).to eq('500 NoMethodError')
     end
 
@@ -2269,7 +2346,7 @@ XML
       subject.rescue_from :all, with: :not_exist_method
       subject.get('/rescue_method') { raise StandardError }
 
-      expect { get '/rescue_method' }.to raise_error(NoMethodError, 'undefined method `not_exist_method\'')
+      expect { get '/rescue_method' }.to raise_error(NoMethodError, /^undefined method 'not_exist_method'/)
     end
 
     it 'correctly chooses exception handler if :all handler is specified' do
@@ -2289,28 +2366,25 @@ XML
       subject.get('/another_error') { raise NoMethodError }
 
       get '/argument_error'
-      expect(last_response.status).to eq(500)
+      expect(last_response).to be_server_error
       expect(last_response.body).to eq('500 ArgumentError')
 
       get '/another_error'
-      expect(last_response.status).to eq(500)
+      expect(last_response).to be_server_error
       expect(last_response.body).to eq('500 AnotherError')
     end
   end
 
   describe '.rescue_from klass, rescue_subclasses: boolean' do
     before do
-      module ApiSpec
-        module APIErrors
-          class ParentError < StandardError; end
-          class ChildError < ParentError; end
-        end
-      end
+      parent_error = Class.new(StandardError)
+      stub_const('ApiSpec::APIErrors::ParentError', parent_error)
+      stub_const('ApiSpec::APIErrors::ChildError', Class.new(parent_error))
     end
 
     it 'rescues error as well as subclass errors with rescue_subclasses option set' do
       subject.rescue_from ApiSpec::APIErrors::ParentError, rescue_subclasses: true do |e|
-        rack_response("rescued from #{e.class.name}", 500)
+        error!("rescued from #{e.class.name}", 500)
       end
       subject.get '/caught_child' do
         raise ApiSpec::APIErrors::ChildError
@@ -2323,27 +2397,27 @@ XML
       end
 
       get '/caught_child'
-      expect(last_response.status).to eql 500
+      expect(last_response).to be_server_error
       get '/caught_parent'
-      expect(last_response.status).to eql 500
+      expect(last_response).to be_server_error
       expect { get '/uncaught_parent' }.to raise_error(StandardError)
     end
 
     it 'sets rescue_subclasses to true by default' do
       subject.rescue_from ApiSpec::APIErrors::ParentError do |e|
-        rack_response("rescued from #{e.class.name}", 500)
+        error!("rescued from #{e.class.name}", 500)
       end
       subject.get '/caught_child' do
         raise ApiSpec::APIErrors::ChildError
       end
 
       get '/caught_child'
-      expect(last_response.status).to eql 500
+      expect(last_response).to be_server_error
     end
 
     it 'does not rescue child errors if rescue_subclasses is false' do
       subject.rescue_from ApiSpec::APIErrors::ParentError, rescue_subclasses: false do |e|
-        rack_response("rescued from #{e.class.name}", 500)
+        error!("rescued from #{e.class.name}", 500)
       end
       subject.get '/uncaught' do
         raise ApiSpec::APIErrors::ChildError
@@ -2373,7 +2447,7 @@ XML
 
     it 'rescues grape exceptions with a user-defined handler' do
       subject.rescue_from grape_exception.class do |_error|
-        rack_response('Redefined Error', 403)
+        error!('Redefined Error', 403)
       end
 
       exception = grape_exception
@@ -2381,7 +2455,7 @@ XML
 
       get '/grape_exception'
 
-      expect(last_response.status).to eq(403)
+      expect(last_response).to be_forbidden
       expect(last_response.body).to eq('Redefined Error')
     end
   end
@@ -2433,46 +2507,42 @@ XML
     end
 
     context 'class' do
-      before :each do
-        module ApiSpec
-          class CustomErrorFormatter
-            def self.call(message, _backtrace, _options, _env, _original_exception)
-              "message: #{message} @backtrace"
-            end
+      let(:custom_error_formatter) do
+        Class.new do
+          def self.call(message, _backtrace, _options, _env, _original_exception)
+            "message: #{message} @backtrace"
           end
         end
       end
+
       it 'returns a custom error format' do
         subject.rescue_from :all, backtrace: true
-        subject.error_formatter :txt, ApiSpec::CustomErrorFormatter
+        subject.error_formatter :txt, custom_error_formatter
+        subject.get('/exception') { raise 'rain!' }
+
+        get '/exception'
+        expect(last_response.body).to eq('message: rain! @backtrace')
+      end
+
+      it 'returns a custom error format (using keyword :with)' do
+        subject.rescue_from :all, backtrace: true
+        subject.error_formatter :txt, with: custom_error_formatter
+        subject.get('/exception') { raise 'rain!' }
+
+        get '/exception'
+        expect(last_response.body).to eq('message: rain! @backtrace')
+      end
+
+      it 'returns a modified error with a custom error format' do
+        subject.rescue_from :all, backtrace: true do |e|
+          error!('raining dogs and cats', 418, {}, e.backtrace, e)
+        end
+        subject.error_formatter :txt, with: custom_error_formatter
         subject.get '/exception' do
           raise 'rain!'
         end
         get '/exception'
-        expect(last_response.body).to eq('message: rain! @backtrace')
-      end
-    end
-
-    describe 'with' do
-      context 'class' do
-        before :each do
-          module ApiSpec
-            class CustomErrorFormatter
-              def self.call(message, _backtrace, _option, _env, _original_exception)
-                "message: #{message} @backtrace"
-              end
-            end
-          end
-        end
-
-        it 'returns a custom error format' do
-          subject.rescue_from :all, backtrace: true
-          subject.error_formatter :txt, with: ApiSpec::CustomErrorFormatter
-          subject.get('/exception') { raise 'rain!' }
-
-          get '/exception'
-          expect(last_response.body).to eq('message: rain! @backtrace')
-        end
+        expect(last_response.body).to eq('message: raining dogs and cats @backtrace')
       end
     end
 
@@ -2485,6 +2555,7 @@ XML
       get '/exception'
       expect(last_response.body).to eql '{"error":"rain!"}'
     end
+
     it 'rescues all errors and return :json with backtrace' do
       subject.rescue_from :all, backtrace: true
       subject.format :json
@@ -2492,10 +2563,11 @@ XML
         raise 'rain!'
       end
       get '/exception'
-      json = ::Grape::Json.load(last_response.body)
+      json = Grape::Json.load(last_response.body)
       expect(json['error']).to eql 'rain!'
       expect(json['backtrace'].length).to be > 0
     end
+
     it 'rescues error! and return txt' do
       subject.format :txt
       subject.get '/error' do
@@ -2504,22 +2576,222 @@ XML
       get '/error'
       expect(last_response.body).to eql 'Access Denied'
     end
+
     context 'with json format' do
-      before { subject.format :json }
+      shared_examples_for 'a json format api' do |error_message|
+        subject { JSON.parse(last_response.body) }
 
-      it 'rescues error! called with a string and returns json' do
-        subject.get('/error') { error!(:failure, 401) }
-      end
-      it 'rescues error! called with a symbol and returns json' do
-        subject.get('/error') { error!(:failure, 401) }
-      end
-      it 'rescues error! called with a hash and returns json' do
-        subject.get('/error') { error!({ error: :failure }, 401) }
+        before  { get '/error' }
+
+        let(:app) do
+          Class.new(Grape::API) do
+            format :json
+            get('/error') { error!(error_message, 401) }
+          end
+        end
+
+        context "when error! called with #{error_message.class.name}" do
+          it { is_expected.to eq('error' => 'failure') }
+        end
       end
 
-      after do
-        get '/error'
-        expect(last_response.body).to eql('{"error":"failure"}')
+      it_behaves_like 'a json format api', 'failure'
+      it_behaves_like 'a json format api', :failure
+      it_behaves_like 'a json format api', { error: :failure }
+    end
+
+    context 'when rescue_from enables backtrace without original exception' do
+      let(:app) do
+        response_type = response_format
+
+        Class.new(Grape::API) do
+          format response_type
+
+          rescue_from :all, backtrace: true, original_exception: false do |e|
+            error!('raining dogs and cats!', 418, {}, e.backtrace, e)
+          end
+
+          get '/exception' do
+            raise 'rain!'
+          end
+        end
+      end
+
+      before do
+        get '/exception'
+      end
+
+      context 'with json response type format' do
+        subject { JSON.parse(last_response.body) }
+
+        let(:response_format) { :json }
+
+        it { is_expected.to include('error' => a_kind_of(String), 'backtrace' => a_kind_of(Array)) }
+        it { is_expected.not_to include('original_exception') }
+      end
+
+      context 'with txt response type format' do
+        subject { last_response.body }
+
+        let(:response_format) { :txt }
+
+        it { is_expected.to include('backtrace') }
+        it { is_expected.not_to include('original_exception') }
+      end
+
+      context 'with xml response type format' do
+        subject { Grape::Xml.parse(last_response.body)['error'] }
+
+        let(:response_format) { :xml }
+
+        it { is_expected.to have_key('backtrace') }
+        it { is_expected.not_to have_key('original-exception') }
+      end
+    end
+
+    context 'when rescue_from enables original exception without backtrace' do
+      let(:app) do
+        response_type = response_format
+
+        Class.new(Grape::API) do
+          format response_type
+
+          rescue_from :all, backtrace: false, original_exception: true do |e|
+            error!('raining dogs and cats!', 418, {}, e.backtrace, e)
+          end
+
+          get '/exception' do
+            raise 'rain!'
+          end
+        end
+      end
+
+      before do
+        get '/exception'
+      end
+
+      context 'with json response type format' do
+        subject { JSON.parse(last_response.body) }
+
+        let(:response_format) { :json }
+
+        it { is_expected.to include('error' => a_kind_of(String), 'original_exception' => a_kind_of(String)) }
+        it { is_expected.not_to include('backtrace') }
+      end
+
+      context 'with txt response type format' do
+        subject { last_response.body }
+
+        let(:response_format) { :txt }
+
+        it { is_expected.to include('original exception') }
+        it { is_expected.not_to include('backtrace') }
+      end
+
+      context 'with xml response type format' do
+        subject { Grape::Xml.parse(last_response.body)['error'] }
+
+        let(:response_format) { :xml }
+
+        it { is_expected.to have_key('original-exception') }
+        it { is_expected.not_to have_key('backtrace') }
+      end
+    end
+
+    context 'when rescue_from include backtrace and original exception' do
+      let(:app) do
+        response_type = response_format
+
+        Class.new(Grape::API) do
+          format response_type
+
+          rescue_from :all, backtrace: true, original_exception: true do |e|
+            error!('raining dogs and cats!', 418, {}, e.backtrace, e)
+          end
+
+          get '/exception' do
+            raise 'rain!'
+          end
+        end
+      end
+
+      before do
+        get '/exception'
+      end
+
+      context 'with json response type format' do
+        subject { JSON.parse(last_response.body) }
+
+        let(:response_format) { :json }
+
+        it { is_expected.to include('error' => a_kind_of(String), 'backtrace' => a_kind_of(Array), 'original_exception' => a_kind_of(String)) }
+      end
+
+      context 'with txt response type format' do
+        subject { last_response.body }
+
+        let(:response_format) { :txt }
+
+        it { is_expected.to include('backtrace', 'original exception') }
+      end
+
+      context 'with xml response type format' do
+        subject { Grape::Xml.parse(last_response.body)['error'] }
+
+        let(:response_format) { :xml }
+
+        it { is_expected.to have_key('backtrace') & have_key('original-exception') }
+      end
+    end
+
+    context 'when rescue validation errors include backtrace and original exception' do
+      let(:app) do
+        response_type = response_format
+
+        Class.new(Grape::API) do
+          format response_type
+
+          rescue_from Grape::Exceptions::ValidationErrors, backtrace: true, original_exception: true do |e|
+            error!(e, 418, {}, e.backtrace, e)
+          end
+
+          params do
+            requires :weather
+          end
+          get '/forecast' do
+            'sunny'
+          end
+        end
+      end
+
+      before do
+        get '/forecast'
+      end
+
+      context 'with json response type format' do
+        subject { JSON.parse(last_response.body) }
+
+        let(:response_format) { :json }
+
+        it 'does not include backtrace or original exception' do
+          expect(subject).to match([{ 'messages' => ['is missing'], 'params' => ['weather'] }])
+        end
+      end
+
+      context 'with txt response type format' do
+        subject { last_response.body }
+
+        let(:response_format) { :txt }
+
+        it { is_expected.to include('backtrace', 'original exception') }
+      end
+
+      context 'with xml response type format' do
+        subject { Grape::Xml.parse(last_response.body)['error'] }
+
+        let(:response_format) { :xml }
+
+        it { is_expected.to have_key('backtrace') & have_key('original-exception') }
       end
     end
   end
@@ -2533,6 +2805,7 @@ XML
       get '/excel.xls'
       expect(last_response.content_type).to eq('application/vnd.ms-excel')
     end
+
     it 'allows to override content-type' do
       subject.get :content do
         content_type 'text/javascript'
@@ -2541,6 +2814,7 @@ XML
       get '/content'
       expect(last_response.content_type).to eq('text/javascript')
     end
+
     it 'removes existing content types' do
       subject.content_type :xls, 'application/vnd.ms-excel'
       subject.get :excel do
@@ -2548,34 +2822,33 @@ XML
       end
       get '/excel.json'
       expect(last_response.status).to eq(406)
-      if ActiveSupport::VERSION::MAJOR == 3
-        expect(last_response.body).to eq('The requested format &#x27;txt&#x27; is not supported.')
-      else
-        expect(last_response.body).to eq('The requested format &#39;txt&#39; is not supported.')
-      end
+      expect(last_response.body).to eq(Rack::Utils.escape_html("The requested format 'txt' is not supported."))
     end
   end
 
   describe '.formatter' do
     context 'multiple formatters' do
-      before :each do
+      before do
         subject.formatter :json, ->(object, _env) { "{\"custom_formatter\":\"#{object[:some]}\"}" }
         subject.formatter :txt, ->(object, _env) { "custom_formatter: #{object[:some]}" }
         subject.get :simple do
           { some: 'hash' }
         end
       end
+
       it 'sets one formatter' do
         get '/simple.json'
         expect(last_response.body).to eql '{"custom_formatter":"hash"}'
       end
+
       it 'sets another formatter' do
         get '/simple.txt'
         expect(last_response.body).to eql 'custom_formatter: hash'
       end
     end
+
     context 'custom formatter' do
-      before :each do
+      before do
         subject.content_type :json, 'application/json'
         subject.content_type :custom, 'application/custom'
         subject.formatter :custom, ->(object, _env) { "{\"custom_formatter\":\"#{object[:some]}\"}" }
@@ -2583,37 +2856,43 @@ XML
           { some: 'hash' }
         end
       end
+
       it 'uses json' do
         get '/simple.json'
         expect(last_response.body).to eql '{"some":"hash"}'
       end
+
       it 'uses custom formatter' do
-        get '/simple.custom', 'HTTP_ACCEPT' => 'application/custom'
+        get '/simple.custom', Grape::Http::Headers::HTTP_ACCEPT => 'application/custom'
         expect(last_response.body).to eql '{"custom_formatter":"hash"}'
       end
     end
+
     context 'custom formatter class' do
-      module ApiSpec
-        module CustomFormatter
+      let(:custom_formatter) do
+        Module.new do
           def self.call(object, _env)
             "{\"custom_formatter\":\"#{object[:some]}\"}"
           end
         end
       end
-      before :each do
+
+      before do
         subject.content_type :json, 'application/json'
         subject.content_type :custom, 'application/custom'
-        subject.formatter :custom, ApiSpec::CustomFormatter
+        subject.formatter :custom, custom_formatter
         subject.get :simple do
           { some: 'hash' }
         end
       end
+
       it 'uses json' do
         get '/simple.json'
         expect(last_response.body).to eql '{"some":"hash"}'
       end
+
       it 'uses custom formatter' do
-        get '/simple.custom', 'HTTP_ACCEPT' => 'application/custom'
+        get '/simple.custom', Grape::Http::Headers::HTTP_ACCEPT => 'application/custom'
         expect(last_response.body).to eql '{"custom_formatter":"hash"}'
       end
     end
@@ -2626,11 +2905,12 @@ XML
         { x: params[:x] }
       end
       post '/data', '{"x":42}', 'CONTENT_TYPE' => 'application/json'
-      expect(last_response.status).to eq(201)
+      expect(last_response).to be_created
       expect(last_response.body).to eq('{"x":42}')
     end
+
     context 'lambda parser' do
-      before :each do
+      before do
         subject.content_type :txt, 'text/plain'
         subject.content_type :custom, 'text/custom'
         subject.parser :custom, ->(object, _env) { { object.to_sym => object.to_s.reverse } }
@@ -2638,36 +2918,41 @@ XML
           params[:simple]
         end
       end
+
       ['text/custom', 'text/custom; charset=UTF-8'].each do |content_type|
         it "uses parser for #{content_type}" do
           put '/simple', 'simple', 'CONTENT_TYPE' => content_type
-          expect(last_response.status).to eq(200)
+          expect(last_response).to be_successful
           expect(last_response.body).to eql 'elpmis'
         end
       end
     end
+
     context 'custom parser class' do
-      module ApiSpec
-        module CustomParser
+      let(:custom_parser) do
+        Module.new do
           def self.call(object, _env)
             { object.to_sym => object.to_s.reverse }
           end
         end
       end
-      before :each do
+
+      before do
         subject.content_type :txt, 'text/plain'
         subject.content_type :custom, 'text/custom'
-        subject.parser :custom, ApiSpec::CustomParser
+        subject.parser :custom, custom_parser
         subject.put :simple do
           params[:simple]
         end
       end
+
       it 'uses custom parser' do
         put '/simple', 'simple', 'CONTENT_TYPE' => 'text/custom'
-        expect(last_response.status).to eq(200)
+        expect(last_response).to be_successful
         expect(last_response.body).to eql 'elpmis'
       end
     end
+
     if Object.const_defined? :MultiXml
       context 'multi_xml' do
         it "doesn't parse yaml" do
@@ -2675,7 +2960,7 @@ XML
             params[:tag]
           end
           put '/yaml', '<tag type="symbol">a123</tag>', 'CONTENT_TYPE' => 'application/xml'
-          expect(last_response.status).to eq(400)
+          expect(last_response).to be_bad_request
           expect(last_response.body).to eql 'Disallowed type attribute: "symbol"'
         end
       end
@@ -2685,46 +2970,50 @@ XML
           subject.put :yaml do
             params[:tag]
           end
-          put '/yaml', '<tag type="symbol">a123</tag>', 'CONTENT_TYPE' => 'application/xml'
-          expect(last_response.status).to eq(200)
-          expect(last_response.body).to eql '{"type"=>"symbol", "__content__"=>"a123"}'
+          body = '<tag type="symbol">a123</tag>'
+          put '/yaml', body, 'CONTENT_TYPE' => 'application/xml'
+          expect(last_response).to be_successful
+          expect(last_response.body).to eq(Grape::Xml.parse(body)['tag'].to_s)
         end
       end
     end
     context 'none parser class' do
-      before :each do
+      before do
         subject.parser :json, nil
         subject.put 'data' do
-          "body: #{env['api.request.body']}"
+          "body: #{env[Grape::Env::API_REQUEST_BODY]}"
         end
       end
+
       it 'does not parse data' do
         put '/data', 'not valid json', 'CONTENT_TYPE' => 'application/json'
-        expect(last_response.status).to eq(200)
+        expect(last_response).to be_successful
         expect(last_response.body).to eq('body: not valid json')
       end
     end
   end
 
   describe '.default_format' do
-    before :each do
+    before do
       subject.format :json
       subject.default_format :json
     end
+
     it 'returns data in default format' do
       subject.get '/data' do
         { x: 42 }
       end
       get '/data'
-      expect(last_response.status).to eq(200)
+      expect(last_response).to be_successful
       expect(last_response.body).to eq('{"x":42}')
     end
+
     it 'parses data in default format' do
       subject.post '/data' do
         { x: params[:x] }
       end
       post '/data', '{"x":42}', 'CONTENT_TYPE' => ''
-      expect(last_response.status).to eq(201)
+      expect(last_response).to be_created
       expect(last_response.body).to eq('{"x":42}')
     end
   end
@@ -2737,16 +3026,18 @@ XML
         raise 'rain!'
       end
       get '/exception'
-      expect(last_response.status).to eql 200
+      expect(last_response).to be_successful
     end
+
     it 'has a default error status' do
       subject.rescue_from :all
       subject.get '/exception' do
         raise 'rain!'
       end
       get '/exception'
-      expect(last_response.status).to eql 500
+      expect(last_response).to be_server_error
     end
+
     it 'uses the default error status in error!' do
       subject.rescue_from :all
       subject.default_error_status 400
@@ -2754,45 +3045,7 @@ XML
         error! 'rain!'
       end
       get '/exception'
-      expect(last_response.status).to eql 400
-    end
-  end
-
-  context 'http_codes' do
-    let(:error_presenter) do
-      Class.new(Grape::Entity) do
-        expose :code
-        expose :static
-
-        def static
-          'some static text'
-        end
-      end
-    end
-
-    it 'is used as presenter' do
-      subject.desc 'some desc', http_codes: [
-        [408, 'Unauthorized', error_presenter]
-      ]
-
-      subject.get '/exception' do
-        error!({ code: 408 }, 408)
-      end
-
-      get '/exception'
-      expect(last_response.status).to eql 408
-      expect(last_response.body).to eql({ code: 408, static: 'some static text' }.to_json)
-    end
-
-    it 'presented with' do
-      error = { code: 408, with: error_presenter }.freeze
-      subject.get '/exception' do
-        error! error, 408
-      end
-
-      get '/exception'
-      expect(last_response.status).to eql 408
-      expect(last_response.body).to eql({ code: 408, static: 'some static text' }.to_json)
+      expect(last_response).to be_bad_request
     end
   end
 
@@ -2802,22 +3055,25 @@ XML
         expect(subject.routes).to eq([])
       end
     end
+
     describe 'single method api structure' do
-      before(:each) do
+      before do
         subject.get :ping do
           'pong'
         end
       end
+
       it 'returns one route' do
         expect(subject.routes.size).to eq(1)
         route = subject.routes[0]
         expect(route.version).to be_nil
         expect(route.path).to eq('/ping(.:format)')
-        expect(route.request_method).to eq('GET')
+        expect(route.request_method).to eq(Rack::GET)
       end
     end
+
     describe 'api structure with two versions and a namespace' do
-      before :each do
+      before do
         subject.version 'v1', using: :path
         subject.get 'version' do
           api.version
@@ -2833,30 +3089,37 @@ XML
           end
         end
       end
+
       it 'returns the latest version set' do
         expect(subject.version).to eq('v2')
       end
+
       it 'returns versions' do
         expect(subject.versions).to eq(%w[v1 v2])
       end
+
       it 'sets route paths' do
         expect(subject.routes.size).to be >= 2
         expect(subject.routes[0].path).to eq('/:version/version(.:format)')
         expect(subject.routes[1].path).to eq('/p/:version/n1/n2/version(.:format)')
       end
+
       it 'sets route versions' do
         expect(subject.routes[0].version).to eq('v1')
         expect(subject.routes[1].version).to eq('v2')
       end
+
       it 'sets a nested namespace' do
         expect(subject.routes[1].namespace).to eq('/n1/n2')
       end
+
       it 'sets prefix' do
         expect(subject.routes[1].prefix).to eq('p')
       end
     end
+
     describe 'api structure with additional parameters' do
-      before(:each) do
+      before do
         subject.params do
           requires :token, desc: 'a token'
           optional :limit, desc: 'the limit'
@@ -2865,14 +3128,17 @@ XML
           params[:string].split(params[:token], (params[:limit] || 0).to_i)
         end
       end
+
       it 'splits a string' do
         get '/split/a,b,c.json', token: ','
         expect(last_response.body).to eq('["a","b","c"]')
       end
+
       it 'splits a string with limit' do
         get '/split/a,b,c.json', token: ',', limit: '2'
         expect(last_response.body).to eq('["a","b,c"]')
       end
+
       it 'sets params' do
         expect(subject.routes.map do |route|
           { params: route.params }
@@ -2887,8 +3153,9 @@ XML
         ]
       end
     end
+
     describe 'api structure with multiple apis' do
-      before(:each) do
+      before do
         subject.params do
           requires :one, desc: 'a token'
           optional :two, desc: 'the limit'
@@ -2903,6 +3170,7 @@ XML
         subject.get 'two' do
         end
       end
+
       it 'sets params' do
         expect(subject.routes.map do |route|
           { params: route.params }
@@ -2922,8 +3190,9 @@ XML
         ]
       end
     end
+
     describe 'api structure with an api without params' do
-      before(:each) do
+      before do
         subject.params do
           requires :one, desc: 'a token'
           optional :two, desc: 'the limit'
@@ -2934,6 +3203,7 @@ XML
         subject.get 'two' do
         end
       end
+
       it 'sets params' do
         expect(subject.routes.map do |route|
           { params: route.params }
@@ -2950,17 +3220,20 @@ XML
         ]
       end
     end
+
     describe 'api with a custom route setting' do
-      before(:each) do
+      before do
         subject.route_setting :custom, key: 'value'
         subject.get 'one'
       end
+
       it 'exposed' do
         expect(subject.routes.count).to eq 1
         route = subject.routes.first
         expect(route.settings[:custom]).to eq(key: 'value')
       end
     end
+
     describe 'status' do
       it 'can be set to arbitrary Integer value' do
         subject.get '/foo' do
@@ -2969,6 +3242,7 @@ XML
         get '/foo'
         expect(last_response.status).to eq 210
       end
+
       it 'can be set with a status code symbol' do
         subject.get '/foo' do
           status :see_other
@@ -2983,20 +3257,22 @@ XML
     it 'empty array of routes' do
       expect(subject.routes).to eq([])
     end
+
     it 'empty array of routes' do
       subject.desc 'grape api'
       expect(subject.routes).to eq([])
     end
+
     it 'describes a method' do
       subject.desc 'first method'
       subject.get :first
       expect(subject.routes.length).to eq(1)
       route = subject.routes.first
       expect(route.description).to eq('first method')
-      expect(route.route_foo).to be_nil
       expect(route.params).to eq({})
-      expect(route.options).to be_a_kind_of(Hash)
+      expect(route.options).to be_a(Hash)
     end
+
     it 'has params which does not include format and version as named captures' do
       subject.version :v1, using: :path
       subject.get :first
@@ -3004,6 +3280,7 @@ XML
       expect(param_keys).not_to include('format')
       expect(param_keys).not_to include('version')
     end
+
     it 'describes methods separately' do
       subject.desc 'first method'
       subject.get :first
@@ -3017,6 +3294,7 @@ XML
         { description: 'second method', params: {} }
       ]
     end
+
     it 'resets desc' do
       subject.desc 'first method'
       subject.get :first
@@ -3028,26 +3306,29 @@ XML
         { description: nil, params: {} }
       ]
     end
+
     it 'namespaces and describe arbitrary parameters' do
       subject.namespace 'ns' do
         desc 'ns second', foo: 'bar'
         get 'second'
       end
       expect(subject.routes.map do |route|
-        { description: route.description, foo: route.route_foo, params: route.params }
+        { description: route.description, foo: route.options[:foo], params: route.params }
       end).to eq [
         { description: 'ns second', foo: 'bar', params: {} }
       ]
     end
-    it 'includes details' do
-      subject.desc 'method', details: 'method details'
+
+    it 'includes detail' do
+      subject.desc 'method', detail: 'method details'
       subject.get 'method'
       expect(subject.routes.map do |route|
-        { description: route.description, details: route.details, params: route.params }
+        { description: route.description, detail: route.detail, params: route.params }
       end).to eq [
-        { description: 'method', details: 'method details', params: {} }
+        { description: 'method', detail: 'method details', params: {} }
       ]
     end
+
     it 'describes a method with parameters' do
       subject.desc 'Reverses a string.', params: { 's' => { desc: 'string to reverse', type: 'string' } }
       subject.get 'reverse' do
@@ -3059,6 +3340,7 @@ XML
         { description: 'Reverses a string.', params: { 's' => { desc: 'string to reverse', type: 'string' } } }
       ]
     end
+
     it 'does not inherit param descriptions in consequent namespaces' do
       subject.desc 'global description'
       subject.params do
@@ -3066,13 +3348,13 @@ XML
         optional :param2
       end
       subject.namespace 'ns1' do
-        get { ; }
+        get {}
       end
       subject.params do
         optional :param2
       end
       subject.namespace 'ns2' do
-        get { ; }
+        get {}
       end
       routes_doc = subject.routes.map do |route|
         { description: route.description, params: route.params }
@@ -3089,6 +3371,7 @@ XML
           } }
       ]
     end
+
     it 'merges the parameters of the namespace with the parameters of the method' do
       subject.desc 'namespace'
       subject.params do
@@ -3113,6 +3396,7 @@ XML
           } }
       ]
     end
+
     it 'merges the parameters of nested namespaces' do
       subject.desc 'ns1'
       subject.params do
@@ -3145,6 +3429,7 @@ XML
           } }
       ]
     end
+
     it 'groups nested params and prevents overwriting of params with same name in different groups' do
       subject.desc 'method'
       subject.params do
@@ -3160,14 +3445,15 @@ XML
       subject.get 'method'
 
       expect(subject.routes.map(&:params)).to eq [{
-        'group1'         => { required: true, type: 'Array' },
+        'group1' => { required: true, type: 'Array' },
         'group1[param1]' => { required: false, desc: 'group1 param1 desc' },
         'group1[param2]' => { required: true, desc: 'group1 param2 desc' },
-        'group2'         => { required: true, type: 'Array' },
+        'group2' => { required: true, type: 'Array' },
         'group2[param1]' => { required: false, desc: 'group2 param1 desc' },
         'group2[param2]' => { required: true, desc: 'group2 param2 desc' }
       }]
     end
+
     it 'uses full name of parameters in nested groups' do
       subject.desc 'nesting'
       subject.params do
@@ -3188,13 +3474,21 @@ XML
           } }
       ]
     end
+
     it 'allows to set the type attribute on :group element' do
       subject.params do
         group :foo, type: Array do
           optional :bar
         end
       end
+      subject.get 'method'
+      expect(subject.routes.map do |route|
+        { description: route.description, params: route.params }
+      end).to eq [
+        { description: nil, params: { 'foo' => { required: true, type: 'Array' }, 'foo[bar]' => { required: false } } }
+      ]
     end
+
     it 'parses parameters when no description is given' do
       subject.params do
         requires :one_param, desc: 'one param'
@@ -3206,6 +3500,7 @@ XML
         { description: nil, params: { 'one_param' => { required: true, desc: 'one param' } } }
       ]
     end
+
     it 'does not symbolize params' do
       subject.desc 'Reverses a string.', params: { 's' => { desc: 'string to reverse', type: 'string' } }
       subject.get 'reverse/:s' do
@@ -3240,7 +3535,7 @@ XML
       it 'is able to cascade' do
         subject.mount lambda { |env|
           headers = {}
-          headers['X-Cascade'] == 'pass' unless env['PATH_INFO'].include?('boo')
+          headers[Grape::Http::Headers::X_CASCADE] == 'pass' if env[Rack::PATH_INFO].exclude?('boo')
           [200, headers, ['Farfegnugen']]
         } => '/'
 
@@ -3264,7 +3559,7 @@ XML
         subject.version 'v1', using: :path
 
         subject.namespace :cool do
-          app = Class.new(Grape::API)
+          app = Class.new(Grape::API) # rubocop:disable RSpec/DescribedClass
           app.get('/awesome') do
             'yo'
           end
@@ -3280,12 +3575,12 @@ XML
         subject.version 'v1', using: :path
 
         subject.namespace :cool do
-          inner_app = Class.new(Grape::API)
+          inner_app = Class.new(Grape::API) # rubocop:disable RSpec/DescribedClass
           inner_app.get('/awesome') do
             'yo'
           end
 
-          app = Class.new(Grape::API)
+          app = Class.new(Grape::API) # rubocop:disable RSpec/DescribedClass
           app.mount inner_app
           mount app
         end
@@ -3297,10 +3592,10 @@ XML
       context 'when some rescues are defined by mounted' do
         it 'inherits parent rescues' do
           subject.rescue_from :all do |e|
-            rack_response("rescued from #{e.message}", 202)
+            error!("rescued from #{e.message}", 202)
           end
 
-          app = Class.new(Grape::API)
+          app = Class.new(described_class)
 
           subject.namespace :mounted do
             app.rescue_from ArgumentError
@@ -3309,19 +3604,20 @@ XML
           end
 
           get '/mounted/fail'
-          expect(last_response.status).to eql 202
+          expect(last_response).to be_accepted
           expect(last_response.body).to eq('rescued from doh!')
         end
+
         it 'prefers rescues defined by mounted if they rescue similar error class' do
           subject.rescue_from StandardError do
-            rack_response('outer rescue')
+            error!('outer rescue')
           end
 
-          app = Class.new(Grape::API)
+          app = Class.new(described_class)
 
           subject.namespace :mounted do
             rescue_from StandardError do
-              rack_response('inner rescue')
+              error!('inner rescue')
             end
             app.get('/fail') { raise 'doh!' }
             mount app
@@ -3330,16 +3626,17 @@ XML
           get '/mounted/fail'
           expect(last_response.body).to eq('inner rescue')
         end
+
         it 'prefers rescues defined by mounted even if outer is more specific' do
           subject.rescue_from ArgumentError do
-            rack_response('outer rescue')
+            error!('outer rescue')
           end
 
-          app = Class.new(Grape::API)
+          app = Class.new(described_class)
 
           subject.namespace :mounted do
             rescue_from StandardError do
-              rack_response('inner rescue')
+              error!('inner rescue')
             end
             app.get('/fail') { raise ArgumentError.new }
             mount app
@@ -3348,16 +3645,17 @@ XML
           get '/mounted/fail'
           expect(last_response.body).to eq('inner rescue')
         end
+
         it 'prefers more specific rescues defined by mounted' do
           subject.rescue_from StandardError do
-            rack_response('outer rescue')
+            error!('outer rescue')
           end
 
-          app = Class.new(Grape::API)
+          app = Class.new(described_class)
 
           subject.namespace :mounted do
             rescue_from ArgumentError do
-              rack_response('inner rescue')
+              error!('inner rescue')
             end
             app.get('/fail') { raise ArgumentError.new }
             mount app
@@ -3370,48 +3668,48 @@ XML
 
       it 'collects the routes of the mounted api' do
         subject.namespace :cool do
-          app = Class.new(Grape::API)
+          app = Class.new(Grape::API) # rubocop:disable RSpec/DescribedClass
           app.get('/awesome') {}
           app.post('/sauce') {}
           mount app
         end
         expect(subject.routes.size).to eq(2)
-        expect(subject.routes.first.path).to match(%r{\/cool\/awesome})
-        expect(subject.routes.last.path).to match(%r{\/cool\/sauce})
+        expect(subject.routes.first.path).to match(%r{/cool/awesome})
+        expect(subject.routes.last.path).to match(%r{/cool/sauce})
       end
 
       it 'mounts on a path' do
         subject.namespace :cool do
-          app = Class.new(Grape::API)
+          app = Class.new(Grape::API) # rubocop:disable RSpec/DescribedClass
           app.get '/awesome' do
             'sauce'
           end
           mount app => '/mounted'
         end
         get '/mounted/cool/awesome'
-        expect(last_response.status).to eq(200)
+        expect(last_response).to be_successful
         expect(last_response.body).to eq('sauce')
       end
 
       it 'mounts on a nested path' do
-        APP1 = Class.new(Grape::API)
-        APP2 = Class.new(Grape::API)
-        APP2.get '/nice' do
+        app1 = Class.new(described_class)
+        app2 = Class.new(described_class)
+        app2.get '/nice' do
           'play'
         end
-        # note that the reverse won't work, mount from outside-in
-        APP3 = subject
-        APP3.mount APP1 => '/app1'
-        APP1.mount APP2 => '/app2'
+        # NOTE: that the reverse won't work, mount from outside-in
+        app3 = subject
+        app3.mount app1 => '/app1'
+        app1.mount app2 => '/app2'
         get '/app1/app2/nice'
-        expect(last_response.status).to eq(200)
+        expect(last_response).to be_successful
         expect(last_response.body).to eq('play')
         options '/app1/app2/nice'
-        expect(last_response.status).to eq(204)
+        expect(last_response).to be_no_content
       end
 
       it 'responds to options' do
-        app = Class.new(Grape::API)
+        app = Class.new(described_class)
         app.get '/colour' do
           'red'
         end
@@ -3425,21 +3723,21 @@ XML
         end
 
         get '/apples/colour'
-        expect(last_response.status).to eql 200
+        expect(last_response).to be_successful
         expect(last_response.body).to eq('red')
         options '/apples/colour'
-        expect(last_response.status).to eql 204
+        expect(last_response).to be_no_content
         get '/apples/pears/colour'
-        expect(last_response.status).to eql 200
+        expect(last_response).to be_successful
         expect(last_response.body).to eq('green')
         options '/apples/pears/colour'
-        expect(last_response.status).to eql 204
+        expect(last_response).to be_no_content
       end
 
       it 'responds to options with path versioning' do
         subject.version 'v1', using: :path
         subject.namespace :apples do
-          app = Class.new(Grape::API)
+          app = Class.new(Grape::API) # rubocop:disable RSpec/DescribedClass
           app.get('/colour') do
             'red'
           end
@@ -3447,14 +3745,14 @@ XML
         end
 
         get '/v1/apples/colour'
-        expect(last_response.status).to eql 200
+        expect(last_response).to be_successful
         expect(last_response.body).to eq('red')
         options '/v1/apples/colour'
-        expect(last_response.status).to eql 204
+        expect(last_response).to be_no_content
       end
 
       it 'mounts a versioned API with nested resources' do
-        api = Class.new(Grape::API) do
+        api = Class.new(described_class) do
           version 'v1'
           resources :users do
             get :hello do
@@ -3469,7 +3767,7 @@ XML
       end
 
       it 'mounts a prefixed API with nested resources' do
-        api = Class.new(Grape::API) do
+        api = Class.new(described_class) do
           prefix 'api'
           resources :users do
             get :hello do
@@ -3484,7 +3782,7 @@ XML
       end
 
       it 'applies format to a mounted API with nested resources' do
-        api = Class.new(Grape::API) do
+        api = Class.new(described_class) do
           format :json
           resources :users do
             get do
@@ -3499,7 +3797,7 @@ XML
       end
 
       it 'applies auth to a mounted API with nested resources' do
-        api = Class.new(Grape::API) do
+        api = Class.new(described_class) do
           format :json
           http_basic do |username, password|
             username == 'username' && password == 'password'
@@ -3513,14 +3811,14 @@ XML
         subject.mount api
 
         get '/users'
-        expect(last_response.status).to eq(401)
+        expect(last_response).to be_unauthorized
 
         get '/users', {}, 'HTTP_AUTHORIZATION' => encode_basic_auth('username', 'password')
         expect(last_response.body).to eq({ users: true }.to_json)
       end
 
       it 'mounts multiple versioned APIs with nested resources' do
-        api1 = Class.new(Grape::API) do
+        api1 = Class.new(described_class) do
           version 'one', using: :header, vendor: 'test'
           resources :users do
             get :hello do
@@ -3529,7 +3827,7 @@ XML
           end
         end
 
-        api2 = Class.new(Grape::API) do
+        api2 = Class.new(described_class) do
           version 'two', using: :header, vendor: 'test'
           resources :users do
             get :hello do
@@ -3548,7 +3846,7 @@ XML
       end
 
       it 'recognizes potential versions with mounted path' do
-        a = Class.new(Grape::API) do
+        a = Class.new(described_class) do
           version :v1, using: :path
 
           get '/hello' do
@@ -3556,7 +3854,7 @@ XML
           end
         end
 
-        b = Class.new(Grape::API) do
+        b = Class.new(described_class) do
           version :v1, using: :path
 
           get '/world' do
@@ -3568,19 +3866,19 @@ XML
         subject.mount b => '/two'
 
         get '/one/v1/hello'
-        expect(last_response.status).to eq 200
+        expect(last_response).to be_successful
 
         get '/two/v1/world'
-        expect(last_response.status).to eq 200
+        expect(last_response).to be_successful
       end
 
       context 'when mounting class extends a subclass of Grape::API' do
         it 'mounts APIs with the same superclass' do
-          base_api = Class.new(Grape::API)
+          base_api = Class.new(described_class)
           a = Class.new(base_api)
           b = Class.new(base_api)
 
-          expect { a.mount b }.to_not raise_error
+          expect { a.mount b }.not_to raise_error
         end
       end
 
@@ -3590,30 +3888,36 @@ XML
             def self.included(base)
               base.extend(ClassMethods)
             end
-            module ClassMethods
+          end
+        end
+
+        before do
+          stub_const(
+            'ClassMethods',
+            Module.new do
               def my_method
                 @test = true
               end
             end
-          end
+          )
         end
 
-        it 'should correctly include module in nested mount' do
+        it 'correctlies include module in nested mount' do
           module_to_include = included_module
-          v1 = Class.new(Grape::API) do
+          v1 = Class.new(described_class) do
             version :v1, using: :path
             include module_to_include
             my_method
           end
-          v2 = Class.new(Grape::API) do
+          v2 = Class.new(described_class) do
             version :v2, using: :path
           end
-          segment_base = Class.new(Grape::API) do
+          segment_base = Class.new(described_class) do
             mount v1
             mount v2
           end
 
-          Class.new(Grape::API) do
+          Class.new(described_class) do
             mount segment_base
           end
 
@@ -3635,7 +3939,7 @@ XML
     it 'sets the instance' do
       expect(subject.instance).to be_nil
       subject.compile
-      expect(subject.instance).to be_kind_of(subject.base_instance)
+      expect(subject.instance).to be_a(subject.base_instance)
     end
   end
 
@@ -3648,7 +3952,7 @@ XML
   end
 
   describe '.endpoint' do
-    before(:each) do
+    before do
       subject.format :json
       subject.get '/endpoint/options' do
         {
@@ -3657,9 +3961,10 @@ XML
         }
       end
     end
+
     it 'path' do
       get '/endpoint/options'
-      options = ::Grape::Json.load(last_response.body)
+      options = Grape::Json.load(last_response.body)
       expect(options['path']).to eq(['/endpoint/options'])
       expect(options['source_location'][0]).to include 'api_spec.rb'
       expect(options['source_location'][1].to_i).to be > 0
@@ -3668,7 +3973,7 @@ XML
 
   describe '.route' do
     context 'plain' do
-      before(:each) do
+      before do
         subject.get '/' do
           route.path
         end
@@ -3676,6 +3981,7 @@ XML
           route.path
         end
       end
+
       it 'provides access to route info' do
         get '/'
         expect(last_response.body).to eq('/(.:format)')
@@ -3683,8 +3989,9 @@ XML
         expect(last_response.body).to eq('/path(.:format)')
       end
     end
+
     context 'with desc' do
-      before(:each) do
+      before do
         subject.desc 'returns description'
         subject.get '/description' do
           route.description
@@ -3694,114 +4001,136 @@ XML
           route.params[params[:id]]
         end
       end
+
       it 'returns route description' do
         get '/description'
         expect(last_response.body).to eq('returns description')
       end
+
       it 'returns route parameters' do
         get '/params/x'
         expect(last_response.body).to eq('y')
       end
     end
   end
+
   describe '.format' do
     context ':txt' do
-      before(:each) do
+      before do
         subject.format :txt
         subject.content_type :json, 'application/json'
         subject.get '/meaning_of_life' do
           { meaning_of_life: 42 }
         end
       end
+
       it 'forces txt without an extension' do
         get '/meaning_of_life'
         expect(last_response.body).to eq({ meaning_of_life: 42 }.to_s)
       end
+
       it 'does not force txt with an extension' do
         get '/meaning_of_life.json'
         expect(last_response.body).to eq({ meaning_of_life: 42 }.to_json)
       end
+
       it 'forces txt from a non-accepting header' do
-        get '/meaning_of_life', {}, 'HTTP_ACCEPT' => 'application/json'
+        get '/meaning_of_life', {}, Grape::Http::Headers::HTTP_ACCEPT => 'application/json'
         expect(last_response.body).to eq({ meaning_of_life: 42 }.to_s)
       end
     end
+
     context ':txt only' do
-      before(:each) do
+      before do
         subject.format :txt
         subject.get '/meaning_of_life' do
           { meaning_of_life: 42 }
         end
       end
+
       it 'forces txt without an extension' do
         get '/meaning_of_life'
         expect(last_response.body).to eq({ meaning_of_life: 42 }.to_s)
       end
+
       it 'accepts specified extension' do
         get '/meaning_of_life.txt'
         expect(last_response.body).to eq({ meaning_of_life: 42 }.to_s)
       end
+
       it 'does not accept extensions other than specified' do
         get '/meaning_of_life.json'
-        expect(last_response.status).to eq(404)
+        expect(last_response).to be_not_found
       end
+
       it 'forces txt from a non-accepting header' do
-        get '/meaning_of_life', {}, 'HTTP_ACCEPT' => 'application/json'
+        get '/meaning_of_life', {}, Grape::Http::Headers::HTTP_ACCEPT => 'application/json'
         expect(last_response.body).to eq({ meaning_of_life: 42 }.to_s)
       end
     end
+
     context ':json' do
-      before(:each) do
+      before do
         subject.format :json
         subject.content_type :txt, 'text/plain'
         subject.get '/meaning_of_life' do
           { meaning_of_life: 42 }
         end
       end
+
       it 'forces json without an extension' do
         get '/meaning_of_life'
         expect(last_response.body).to eq({ meaning_of_life: 42 }.to_json)
       end
+
       it 'does not force json with an extension' do
         get '/meaning_of_life.txt'
         expect(last_response.body).to eq({ meaning_of_life: 42 }.to_s)
       end
+
       it 'forces json from a non-accepting header' do
-        get '/meaning_of_life', {}, 'HTTP_ACCEPT' => 'text/html'
+        get '/meaning_of_life', {}, Grape::Http::Headers::HTTP_ACCEPT => 'text/html'
         expect(last_response.body).to eq({ meaning_of_life: 42 }.to_json)
       end
-      it 'can be overwritten with an explicit content type' do
+
+      it 'can be overwritten with an explicit api_format' do
         subject.get '/meaning_of_life_with_content_type' do
-          content_type 'text/plain'
+          api_format :txt
           { meaning_of_life: 42 }.to_s
         end
         get '/meaning_of_life_with_content_type'
         expect(last_response.body).to eq({ meaning_of_life: 42 }.to_s)
       end
+
       it 'raised :error from middleware' do
         middleware = Class.new(Grape::Middleware::Base) do
           def before
-            throw :error, message: 'Unauthorized', status: 42
+            throw :error, message: 'Unauthorized', status: 500
           end
         end
         subject.use middleware
         subject.get do
         end
         get '/'
-        expect(last_response.status).to eq(42)
+        expect(last_response).to be_server_error
         expect(last_response.body).to eq({ error: 'Unauthorized' }.to_json)
       end
     end
-    context ':serializable_hash' do
-      class SerializableHashExample
-        def serializable_hash
-          { abc: 'def' }
-        end
-      end
 
-      before(:each) do
+    context ':serializable_hash' do
+      before do
+        stub_const(
+          'SerializableHashExample',
+          Class.new do
+            def serializable_hash
+              { abc: 'def' }
+            end
+          end
+        )
+
         subject.format :serializable_hash
       end
+
       it 'instance' do
         subject.get '/example' do
           SerializableHashExample.new
@@ -3809,6 +4138,7 @@ XML
         get '/example'
         expect(last_response.body).to eq('{"abc":"def"}')
       end
+
       it 'root' do
         subject.get '/example' do
           { 'root' => SerializableHashExample.new }
@@ -3816,6 +4146,7 @@ XML
         get '/example'
         expect(last_response.body).to eq('{"root":{"abc":"def"}}')
       end
+
       it 'array' do
         subject.get '/examples' do
           [SerializableHashExample.new, SerializableHashExample.new]
@@ -3824,23 +4155,26 @@ XML
         expect(last_response.body).to eq('[{"abc":"def"},{"abc":"def"}]')
       end
     end
+
     context ':xml' do
-      before(:each) do
+      before do
         subject.format :xml
       end
+
       it 'string' do
         subject.get '/example' do
           'example'
         end
         get '/example'
-        expect(last_response.status).to eq(500)
-        expect(last_response.body).to eq <<-XML
-<?xml version="1.0" encoding="UTF-8"?>
-<error>
-  <message>cannot convert String to xml</message>
-</error>
-XML
+        expect(last_response).to be_server_error
+        expect(last_response.body).to eq <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <error>
+            <message>cannot convert String to xml</message>
+          </error>
+        XML
       end
+
       it 'hash' do
         subject.get '/example' do
           {
@@ -3849,46 +4183,48 @@ XML
           }
         end
         get '/example'
-        expect(last_response.status).to eq(200)
-        expect(last_response.body).to eq <<-XML
-<?xml version="1.0" encoding="UTF-8"?>
-<hash>
-  <example1>example1</example1>
-  <example2>example2</example2>
-</hash>
-XML
+        expect(last_response).to be_successful
+        expect(last_response.body).to eq <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <hash>
+            <example1>example1</example1>
+            <example2>example2</example2>
+          </hash>
+        XML
       end
+
       it 'array' do
         subject.get '/example' do
           %w[example1 example2]
         end
         get '/example'
-        expect(last_response.status).to eq(200)
-        expect(last_response.body).to eq <<-XML
-<?xml version="1.0" encoding="UTF-8"?>
-<strings type="array">
-  <string>example1</string>
-  <string>example2</string>
-</strings>
-XML
+        expect(last_response).to be_successful
+        expect(last_response.body).to eq <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <strings type="array">
+            <string>example1</string>
+            <string>example2</string>
+          </strings>
+        XML
       end
+
       it 'raised :error from middleware' do
         middleware = Class.new(Grape::Middleware::Base) do
           def before
-            throw :error, message: 'Unauthorized', status: 42
+            throw :error, message: 'Unauthorized', status: 500
           end
         end
         subject.use middleware
         subject.get do
         end
         get '/'
-        expect(last_response.status).to eq(42)
-        expect(last_response.body).to eq <<-XML
-<?xml version="1.0" encoding="UTF-8"?>
-<error>
-  <message>Unauthorized</message>
-</error>
-XML
+        expect(last_response.status).to eq(500)
+        expect(last_response.body).to eq <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <error>
+            <message>Unauthorized</message>
+          </error>
+        XML
       end
     end
   end
@@ -3933,12 +4269,12 @@ XML
 
   context 'catch-all' do
     before do
-      api1 = Class.new(Grape::API)
+      api1 = Class.new(described_class)
       api1.version 'v1', using: :path
       api1.get 'hello' do
         'v1'
       end
-      api2 = Class.new(Grape::API)
+      api2 = Class.new(described_class)
       api2.version 'v2', using: :path
       api2.get 'hello' do
         'v2'
@@ -3946,25 +4282,26 @@ XML
       subject.mount api1
       subject.mount api2
     end
+
     [true, false].each do |anchor|
       it "anchor=#{anchor}" do
         subject.route :any, '*path', anchor: anchor do
-          error!("Unrecognized request path: #{params[:path]} - #{env['PATH_INFO']}#{env['SCRIPT_NAME']}", 404)
+          error!("Unrecognized request path: #{params[:path]} - #{env[Rack::PATH_INFO]}#{env[Rack::SCRIPT_NAME]}", 404)
         end
         get '/v1/hello'
-        expect(last_response.status).to eq(200)
+        expect(last_response).to be_successful
         expect(last_response.body).to eq('v1')
         get '/v2/hello'
-        expect(last_response.status).to eq(200)
+        expect(last_response).to be_successful
         expect(last_response.body).to eq('v2')
         options '/v2/hello'
-        expect(last_response.status).to eq(204)
+        expect(last_response).to be_no_content
         expect(last_response.body).to be_blank
         head '/v2/hello'
-        expect(last_response.status).to eq(200)
+        expect(last_response).to be_successful
         expect(last_response.body).to be_blank
         get '/foobar'
-        expect(last_response.status).to eq(404)
+        expect(last_response).to be_not_found
         expect(last_response.body).to eq('Unrecognized request path: foobar - /foobar')
       end
     end
@@ -3975,28 +4312,31 @@ XML
       it 'cascades' do
         subject.version 'v1', using: :path, cascade: true
         get '/v1/hello'
-        expect(last_response.status).to eq(404)
-        expect(last_response.headers['X-Cascade']).to eq('pass')
+        expect(last_response).to be_not_found
+        expect(last_response.headers[Grape::Http::Headers::X_CASCADE]).to eq('pass')
       end
+
       it 'does not cascade' do
         subject.version 'v2', using: :path, cascade: false
         get '/v2/hello'
-        expect(last_response.status).to eq(404)
-        expect(last_response.headers.keys).not_to include 'X-Cascade'
+        expect(last_response).to be_not_found
+        expect(last_response.headers.keys).not_to include Grape::Http::Headers::X_CASCADE
       end
     end
+
     context 'via endpoint' do
       it 'cascades' do
         subject.cascade true
         get '/hello'
-        expect(last_response.status).to eq(404)
-        expect(last_response.headers['X-Cascade']).to eq('pass')
+        expect(last_response).to be_not_found
+        expect(last_response.headers[Grape::Http::Headers::X_CASCADE]).to eq('pass')
       end
+
       it 'does not cascade' do
         subject.cascade false
         get '/hello'
-        expect(last_response.status).to eq(404)
-        expect(last_response.headers.keys).not_to include 'X-Cascade'
+        expect(last_response).to be_not_found
+        expect(last_response.headers.keys).not_to include Grape::Http::Headers::X_CASCADE
       end
     end
   end
@@ -4010,11 +4350,7 @@ XML
       end
       get '/something'
       expect(last_response.status).to eq(406)
-      if ActiveSupport::VERSION::MAJOR == 3
-        expect(last_response.body).to eq('{&quot;error&quot;:&quot;The requested format &#x27;txt&#x27; is not supported.&quot;}')
-      else
-        expect(last_response.body).to eq('{&quot;error&quot;:&quot;The requested format &#39;txt&#39; is not supported.&quot;}')
-      end
+      expect(last_response.body).to eq(Rack::Utils.escape_html({ error: "The requested format 'txt' is not supported." }.to_json))
     end
   end
 
@@ -4026,11 +4362,21 @@ XML
       end
       get '/something?format=<script>blah</script>'
       expect(last_response.status).to eq(406)
-      if ActiveSupport::VERSION::MAJOR == 3
-        expect(last_response.body).to eq('The requested format &#x27;&lt;script&gt;blah&lt;/script&gt;&#x27; is not supported.')
-      else
-        expect(last_response.body).to eq('The requested format &#39;&lt;script&gt;blah&lt;/script&gt;&#39; is not supported.')
+      expect(last_response.body).to eq(Rack::Utils.escape_html("The requested format '<script>blah</script>' is not supported."))
+    end
+  end
+
+  context 'with non-UTF-8 characters in specified format' do
+    it 'converts the characters' do
+      subject.format :json
+      subject.content_type :json, 'application/json'
+      subject.get '/something' do
+        'foo'
       end
+      get '/something?format=%0A%0B%BF'
+      expect(last_response.status).to eq(406)
+      message = "The requested format '\n\u000b\357\277\275' is not supported."
+      expect(last_response.body).to eq({ error: message }.to_json)
     end
   end
 
@@ -4041,12 +4387,14 @@ XML
           body false
         end
       end
+
       it 'returns blank body' do
         get '/blank'
-        expect(last_response.status).to eq(204)
+        expect(last_response).to be_no_content
         expect(last_response.body).to be_blank
       end
     end
+
     context 'plain text' do
       before do
         subject.get '/text' do
@@ -4055,16 +4403,17 @@ XML
           'ignored'
         end
       end
+
       it 'returns blank body' do
         get '/text'
-        expect(last_response.status).to eq(200)
+        expect(last_response).to be_successful
         expect(last_response.body).to eq 'Hello World'
       end
     end
   end
 
   describe 'normal class methods' do
-    subject(:grape_api) { Class.new(Grape::API) }
+    subject(:grape_api) { Class.new(described_class) }
 
     before do
       stub_const('MyAPI', grape_api)
@@ -4084,7 +4433,7 @@ XML
   describe '.inherited' do
     context 'overriding within class' do
       let(:root_api) do
-        Class.new(Grape::API) do
+        Class.new(described_class) do
           @bar = 'Hello, world'
 
           def self.inherited(child_api)
@@ -4101,18 +4450,31 @@ XML
       end
     end
 
+    it 'does not override methods inherited from Class' do
+      Class.define_method(:test_method) {}
+      subclass = Class.new(described_class)
+      expect(subclass).not_to receive(:add_setup)
+      subclass.test_method
+    ensure
+      Class.remove_method(:test_method)
+    end
+
     context 'overriding via composition' do
-      module Inherited
-        def inherited(api)
-          super
-          api.instance_variable_set(:@foo, @bar.dup)
+      let(:inherited) do
+        Module.new do
+          def inherited(api)
+            super
+            api.instance_variable_set(:@foo, @bar.dup)
+          end
         end
       end
 
       let(:root_api) do
-        Class.new(Grape::API) do
+        context = self
+
+        Class.new(described_class) do
           @bar = 'Hello, world'
-          extend Inherited
+          extend context.inherited
         end
       end
 
@@ -4125,9 +4487,10 @@ XML
   end
 
   describe 'const_missing' do
-    subject(:grape_api) { Class.new(Grape::API) }
+    subject(:grape_api) { Class.new(described_class) }
+
     let(:mounted) do
-      Class.new(Grape::API) do
+      Class.new(described_class) do
         get '/missing' do
           SomeRandomConstant
         end
@@ -4142,6 +4505,12 @@ XML
   end
 
   describe 'custom route helpers on nested APIs' do
+    subject(:grape_api) do
+      Class.new(described_class) do
+        version 'v1', using: :path
+      end
+    end
+
     let(:shared_api_module) do
       Module.new do
         # rubocop:disable Style/ExplicitBlockArgument because this causes
@@ -4175,7 +4544,7 @@ XML
     let(:orders_root) do
       shared = shared_api_definitions
       find = orders_find_endpoint
-      Class.new(Grape::API) do
+      Class.new(described_class) do
         include shared
 
         namespace(:orders) do
@@ -4185,7 +4554,7 @@ XML
     end
     let(:orders_find_endpoint) do
       shared = shared_api_definitions
-      Class.new(Grape::API) do
+      Class.new(described_class) do
         include shared
 
         uniqe_id_route do
@@ -4196,11 +4565,6 @@ XML
         end
       end
     end
-    subject(:grape_api) do
-      Class.new(Grape::API) do
-        version 'v1', using: :path
-      end
-    end
 
     before do
       Grape::API::Instance.extend(shared_api_module)
@@ -4209,12 +4573,125 @@ XML
 
     it 'returns an error when the id is bad' do
       get '/v1/orders/abc'
-      expect(last_response.body).to be_eql('id is invalid')
+      expect(last_response.body).to eq('id is invalid')
     end
 
     it 'returns the given id when it is valid' do
       get '/v1/orders/1-2'
-      expect(last_response.body).to be_eql('1-2')
+      expect(last_response.body).to eq('1-2')
     end
+  end
+
+  context 'instance variables' do
+    context 'when setting instance variables in a before validation' do
+      it 'is accessible inside the endpoint' do
+        expected_instance_variable_value = 'wadus'
+
+        subject.before do
+          @my_var = expected_instance_variable_value
+        end
+
+        subject.get('/') do
+          { my_var: @my_var }.to_json
+        end
+
+        get '/'
+        expect(last_response.body).to eq({ my_var: expected_instance_variable_value }.to_json)
+      end
+    end
+
+    context 'when setting instance variables inside the endpoint code' do
+      it 'is accessible inside the rescue_from handler' do
+        expected_instance_variable_value = 'wadus'
+
+        subject.rescue_from(:all) do
+          body = { my_var: @my_var }
+          error!(body, 400)
+        end
+
+        subject.get('/') do
+          @my_var = expected_instance_variable_value
+          raise
+        end
+
+        get '/'
+        expect(last_response).to be_bad_request
+        expect(last_response.body).to eq({ my_var: expected_instance_variable_value }.to_json)
+      end
+
+      it 'is NOT available in other endpoints of the same api' do
+        expected_instance_variable_value = 'wadus'
+
+        subject.get('/first') do
+          @my_var = expected_instance_variable_value
+          { my_var: @my_var }.to_json
+        end
+
+        subject.get('/second') do
+          { my_var: @my_var }.to_json
+        end
+
+        get '/first'
+        expect(last_response.body).to eq({ my_var: expected_instance_variable_value }.to_json)
+        get '/second'
+        expect(last_response.body).to eq({ my_var: nil }.to_json)
+      end
+    end
+
+    context 'when set type to a route_param' do
+      context 'and the param does not match' do
+        it 'returns a 404 response' do
+          subject.namespace :books do
+            route_param :id, type: Integer do
+              get do
+                params[:id]
+              end
+            end
+          end
+
+          get '/books/other'
+          expect(last_response).to be_not_found
+        end
+      end
+    end
+  end
+
+  context 'rack_response deprecated' do
+    let(:app) do
+      Class.new(described_class) do
+        rescue_from :all do
+          rack_response('deprecated', 500, 'Content-Type' => 'text/plain')
+        end
+
+        get 'test' do
+          raise ArgumentError
+        end
+      end
+    end
+
+    it 'raises a deprecation' do
+      expect(Grape.deprecator).to receive(:warn).with('The rack_response method has been deprecated, use error! instead.')
+      get 'test'
+      expect(last_response.body).to eq('deprecated')
+    end
+  end
+
+  context 'rescue_from context' do
+    subject { last_response }
+
+    let(:api) do
+      Class.new(described_class) do
+        rescue_from :all do
+          error!(context.env, 400)
+        end
+        get { raise ArgumentError, 'Oops!' }
+      end
+    end
+
+    let(:app) { api }
+
+    before { get '/' }
+
+    it { is_expected.to be_bad_request }
   end
 end

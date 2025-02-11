@@ -1,21 +1,30 @@
 # frozen_string_literal: true
 
-require 'grape/router'
-require 'grape/api/instance'
-
 module Grape
   # The API class is the primary entry point for creating Grape APIs. Users
   # should subclass this class in order to build an API.
   class API
     # Class methods that we want to call on the API rather than on the API object
-    NON_OVERRIDABLE = (Class.new.methods + %i[call call! configuration compile! inherited]).freeze
+    NON_OVERRIDABLE = %i[call call! configuration compile! inherited].freeze
+
+    class Boolean
+      def self.build(val)
+        return nil if val != true && val != false
+
+        new
+      end
+    end
+
+    class Instance
+      Boolean = Grape::API::Boolean
+    end
 
     class << self
       attr_accessor :base_instance, :instances
 
       # Rather than initializing an object of type Grape::API, create an object of type Instance
-      def new(*args, &block)
-        base_instance.new(*args, &block)
+      def new(...)
+        base_instance.new(...)
       end
 
       # When inherited, will create a list of all instances (times the API was mounted)
@@ -23,7 +32,7 @@ module Grape
       def inherited(api)
         super
 
-        api.initial_setup(Grape::API == self ? Grape::API::Instance : @base_instance)
+        api.initial_setup(self == Grape::API ? Grape::API::Instance : @base_instance)
         api.override_all_methods!
       end
 
@@ -31,14 +40,14 @@ module Grape
       # an instance that will be used to create the set up but will not be mounted
       def initial_setup(base_instance_parent)
         @instances = []
-        @setup = Set.new
+        @setup = []
         @base_parent = base_instance_parent
         @base_instance = mount_instance
       end
 
       # Redefines all methods so that are forwarded to add_setup and be recorded
       def override_all_methods!
-        (base_instance.methods - NON_OVERRIDABLE).each do |method_override|
+        (base_instance.methods - Class.methods - NON_OVERRIDABLE).each do |method_override|
           define_singleton_method(method_override) do |*args, &block|
             add_setup(method_override, *args, &block)
           end
@@ -65,24 +74,15 @@ module Grape
       # the headers, and the body. See [the rack specification]
       # (http://www.rubydoc.info/github/rack/rack/master/file/SPEC) for more.
       # NOTE: This will only be called on an API directly mounted on RACK
-      def call(*args, &block)
-        instance_for_rack.call(*args, &block)
-      end
-
-      # Alleviates problems with autoloading by tring to search for the constant
-      def const_missing(*args)
-        if base_instance.const_defined?(*args)
-          base_instance.const_get(*args)
-        else
-          super
-        end
+      def call(...)
+        instance_for_rack.call(...)
       end
 
       # The remountable class can have a configuration hash to provide some dynamic class-level variables.
       # For instance, a description could be done using: `desc configuration[:description]` if it may vary
       # depending on where the endpoint is mounted. Use with care, if you find yourself using configuration
       # too much, you may actually want to provide a new API rather than remount it.
-      def mount_instance(**opts)
+      def mount_instance(opts = {})
         instance = Class.new(@base_parent)
         instance.configuration = Grape::Util::EndpointConfiguration.new(opts[:configuration] || {})
         instance.base = self
@@ -99,7 +99,7 @@ module Grape
       end
 
       def respond_to?(method, include_private = false)
-        super(method, include_private) || base_instance.respond_to?(method, include_private)
+        super || base_instance.respond_to?(method, include_private)
       end
 
       def respond_to_missing?(method, include_private = false)
@@ -116,7 +116,6 @@ module Grape
       end
 
       def compile!
-        require 'grape/eager_load'
         instance_for_rack.compile! # See API::Instance.compile!
       end
 
@@ -138,11 +137,25 @@ module Grape
         @instances.each do |instance|
           last_response = replay_step_on(instance, setup_step)
         end
+
+        # Updating all previously mounted classes in the case that new methods have been executed.
+        if method != :mount && @setup.any?
+          previous_mount_steps = @setup.select { |step| step[:method] == :mount }
+          previous_mount_steps.each do |mount_step|
+            refresh_mount_step = mount_step.merge(method: :refresh_mounted_api)
+            @setup += [refresh_mount_step]
+            @instances.each do |instance|
+              replay_step_on(instance, refresh_mount_step)
+            end
+          end
+        end
+
         last_response
       end
 
       def replay_step_on(instance, setup_step)
         return if skip_immediate_run?(instance, setup_step[:args])
+
         args = evaluate_arguments(instance.configuration, *setup_step[:args])
         response = instance.send(setup_step[:method], *args, &setup_step[:block])
         if skip_immediate_run?(instance, [response])

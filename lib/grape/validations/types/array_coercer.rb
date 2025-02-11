@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require_relative 'dry_type_coercer'
-
 module Grape
   module Validations
     module Types
@@ -14,8 +12,6 @@ module Grape
       # behavior of Virtus which was used earlier, a `Grape::Validations::Types::PrimitiveCoercer`
       # maintains Virtus behavior in coercing.
       class ArrayCoercer < DryTypeCoercer
-        register_collection Array
-
         def initialize(type, strict = false)
           super
 

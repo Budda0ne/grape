@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
-
 describe Rack::Sendfile do
   subject do
     content_object = file_object
@@ -18,7 +16,7 @@ describe Rack::Sendfile do
     end
 
     options = {
-      method: 'GET',
+      method: Rack::GET,
       'HTTP_X_SENDFILE_TYPE' => 'X-Accel-Redirect',
       'HTTP_X_ACCEL_MAPPING' => '/accel/mapping/=/replaced/'
     }
@@ -44,7 +42,7 @@ describe Rack::Sendfile do
 
     it 'not contains Sendfile headers' do
       headers = subject[1]
-      expect(headers).to_not include('X-Accel-Redirect')
+      expect(headers).not_to include('X-Accel-Redirect')
     end
   end
 end

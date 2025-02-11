@@ -1,8 +1,15 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
-
 describe Grape::API do
+  subject do
+    context = self
+
+    Class.new(Grape::API) do
+      format :json
+      mount context.combined_api => '/'
+    end
+  end
+
   let(:jobs_api) do
     Class.new(Grape::API) do
       namespace :one do
@@ -10,6 +17,7 @@ describe Grape::API do
           namespace :three do
             get :one do
             end
+
             get :two do
             end
           end
@@ -19,18 +27,11 @@ describe Grape::API do
   end
 
   let(:combined_api) do
-    JobsApi = jobs_api
+    context = self
+
     Class.new(Grape::API) do
       version :v1, using: :accept_version_header, cascade: true
-      mount JobsApi
-    end
-  end
-
-  subject do
-    CombinedApi = combined_api
-    Class.new(Grape::API) do
-      format :json
-      mount CombinedApi => '/'
+      mount context.jobs_api
     end
   end
 

@@ -1,62 +1,76 @@
 # frozen_string_literal: true
 
-require 'forwardable'
-require 'mustermann/grape'
-require 'grape/util/cache'
-
 module Grape
   class Router
     class Pattern
-      DEFAULT_PATTERN_OPTIONS   = { uri_decode: true }.freeze
-      DEFAULT_SUPPORTED_CAPTURE = %i[format version].freeze
+      extend Forwardable
+
+      DEFAULT_CAPTURES = %w[format version].freeze
 
       attr_reader :origin, :path, :pattern, :to_regexp
 
-      extend Forwardable
-      def_delegators :pattern, :named_captures, :params
+      def_delegators :pattern, :params
       def_delegators :to_regexp, :===
       alias match? ===
 
-      def initialize(pattern, **options)
-        @origin  = pattern
-        @path    = build_path(pattern, **options)
-        @pattern = Mustermann::Grape.new(@path, **pattern_options(options))
+      def initialize(origin, suffix, options)
+        @origin = origin
+        @path = build_path(origin, options[:anchor], suffix)
+        @pattern = build_pattern(@path, options[:params], options[:format], options[:version], options[:requirements])
         @to_regexp = @pattern.to_regexp
+      end
+
+      def captures_default
+        to_regexp.names
+                 .delete_if { |n| DEFAULT_CAPTURES.include?(n) }
+                 .to_h { |k| [k, ''] }
       end
 
       private
 
-      def pattern_options(options)
-        capture = extract_capture(**options)
-        options = DEFAULT_PATTERN_OPTIONS.dup
-        options[:capture] = capture if capture.present?
-        options
+      def build_pattern(path, params, format, version, requirements)
+        Mustermann::Grape.new(
+          path,
+          uri_decode: true,
+          params: params,
+          capture: extract_capture(format, version, requirements)
+        )
       end
 
-      def build_path(pattern, anchor: false, suffix: nil, **_options)
-        unless anchor || pattern.end_with?('*path')
-          pattern = +pattern
-          pattern << '/' unless pattern.end_with?('/')
-          pattern << '*path'
-        end
-
-        pattern = -pattern.split('/').tap do |parts|
-          parts[parts.length - 1] = '?' + parts.last
-        end.join('/') if pattern.end_with?('*path')
-
-        PatternCache[[pattern, suffix]]
+      def build_path(pattern, anchor, suffix)
+        PatternCache[[build_path_from_pattern(pattern, anchor), suffix]]
       end
 
-      def extract_capture(requirements: {}, **options)
-        requirements = {}.merge(requirements)
-        DEFAULT_SUPPORTED_CAPTURE.each_with_object(requirements) do |field, capture|
-          option = Array(options[field])
-          capture[field] = option.map(&:to_s) if option.present?
+      def extract_capture(format, version, requirements)
+        capture = {}.tap do |h|
+          h[:format] = map_str(format) if format.present?
+          h[:version] = map_str(version) if version.present?
         end
+
+        return capture if requirements.blank?
+
+        requirements.merge(capture)
+      end
+
+      def build_path_from_pattern(pattern, anchor)
+        if pattern.end_with?('*path')
+          pattern.dup.insert(pattern.rindex('/') + 1, '?')
+        elsif anchor
+          pattern
+        elsif pattern.end_with?('/')
+          "#{pattern}?*path"
+        else
+          "#{pattern}/?*path"
+        end
+      end
+
+      def map_str(value)
+        Array.wrap(value).map(&:to_s)
       end
 
       class PatternCache < Grape::Util::Cache
         def initialize
+          super
           @cache = Hash.new do |h, (pattern, suffix)|
             h[[pattern, suffix]] = -"#{pattern}#{suffix}"
           end

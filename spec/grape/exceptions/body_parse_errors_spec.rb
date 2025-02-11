@@ -1,13 +1,12 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
-
 describe Grape::Exceptions::ValidationErrors do
   context 'api with rescue_from :all handler' do
     subject { Class.new(Grape::API) }
+
     before do
       subject.rescue_from :all do |_e|
-        rack_response 'message was processed', 400
+        error! 'message was processed', 400
       end
       subject.params do
         requires :beer
@@ -56,9 +55,10 @@ describe Grape::Exceptions::ValidationErrors do
 
   context 'api with rescue_from :grape_exceptions handler' do
     subject { Class.new(Grape::API) }
+
     before do
       subject.rescue_from :all do |_e|
-        rack_response 'message was processed', 400
+        error! 'message was processed', 400
       end
       subject.rescue_from :grape_exceptions
 
@@ -91,8 +91,49 @@ describe Grape::Exceptions::ValidationErrors do
     end
   end
 
+  context 'api with rescue_from :grape_exceptions handler with block' do
+    subject { Class.new(Grape::API) }
+
+    before do
+      subject.rescue_from :grape_exceptions do |e|
+        error! "Custom Error Contents, Original Message: #{e.message}", 400
+      end
+
+      subject.params do
+        requires :beer
+      end
+
+      subject.post '/beer' do
+        'beer received'
+      end
+    end
+
+    def app
+      subject
+    end
+
+    context 'with content_type json' do
+      it 'returns body parsing error message' do
+        post '/beer', 'test', 'CONTENT_TYPE' => 'application/json'
+        expect(last_response.status).to eq 400
+        expect(last_response.body).to include 'message body does not match declared format'
+        expect(last_response.body).to include 'Custom Error Contents, Original Message'
+      end
+    end
+
+    context 'with content_type xml' do
+      it 'returns body parsing error message' do
+        post '/beer', 'test', 'CONTENT_TYPE' => 'application/xml'
+        expect(last_response.status).to eq 400
+        expect(last_response.body).to include 'message body does not match declared format'
+        expect(last_response.body).to include 'Custom Error Contents, Original Message'
+      end
+    end
+  end
+
   context 'api without a rescue handler' do
     subject { Class.new(Grape::API) }
+
     before do
       subject.params do
         requires :beer

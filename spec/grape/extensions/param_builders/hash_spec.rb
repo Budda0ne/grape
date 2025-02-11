@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
-
 describe Grape::Extensions::Hash::ParamBuilder do
   subject { Class.new(Grape::API) }
 
@@ -10,10 +8,10 @@ describe Grape::Extensions::Hash::ParamBuilder do
   end
 
   describe 'in an endpoint' do
-    context '#params' do
+    describe '#params' do
       before do
         subject.params do
-          build_with Grape::Extensions::Hash::ParamBuilder
+          build_with Grape::Extensions::Hash::ParamBuilder # rubocop:disable RSpec/DescribedClass
         end
 
         subject.get do
@@ -21,7 +19,7 @@ describe Grape::Extensions::Hash::ParamBuilder do
         end
       end
 
-      it 'should be of type Hash' do
+      it 'is of type Hash' do
         get '/'
         expect(last_response.status).to eq(200)
         expect(last_response.body).to eq('Hash')
@@ -31,17 +29,17 @@ describe Grape::Extensions::Hash::ParamBuilder do
 
   describe 'in an api' do
     before do
-      subject.send(:include, Grape::Extensions::Hash::ParamBuilder)
+      subject.include Grape::Extensions::Hash::ParamBuilder # rubocop:disable RSpec/DescribedClass
     end
 
-    context '#params' do
+    describe '#params' do
       before do
         subject.get do
           params.class
         end
       end
 
-      it 'should be Hash' do
+      it 'is Hash' do
         get '/'
         expect(last_response.status).to eq(200)
         expect(last_response.body).to eq('Hash')
@@ -69,7 +67,7 @@ describe Grape::Extensions::Hash::ParamBuilder do
 
     it 'symbolizes the params' do
       subject.params do
-        build_with Grape::Extensions::Hash::ParamBuilder
+        build_with Grape::Extensions::Hash::ParamBuilder # rubocop:disable RSpec/DescribedClass
         requires :a, type: String
       end
 
@@ -80,6 +78,35 @@ describe Grape::Extensions::Hash::ParamBuilder do
       get '/foo', a: 'bar'
       expect(last_response.status).to eq(200)
       expect(last_response.body).to eq('["bar", nil]')
+    end
+
+    it 'does not overwrite route_param with a regular param if they have same name' do
+      subject.namespace :route_param do
+        route_param :foo do
+          get { params.to_json }
+        end
+      end
+
+      get '/route_param/bar', foo: 'baz'
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to eq('{"foo":"bar"}')
+    end
+
+    it 'does not overwrite route_param with a defined regular param if they have same name' do
+      subject.namespace :route_param do
+        params do
+          requires :foo, type: String
+        end
+        route_param :foo do
+          get do
+            params[:foo]
+          end
+        end
+      end
+
+      get '/route_param/bar', foo: 'baz'
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to eq('bar')
     end
   end
 end

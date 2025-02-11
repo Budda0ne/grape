@@ -1,36 +1,31 @@
 # frozen_string_literal: true
 
-require 'grape/util/lazy_object'
-
 module Grape
   module Http
     module Headers
-      # https://github.com/rack/rack/blob/master/lib/rack.rb
-      HTTP_VERSION    = 'HTTP_VERSION'
-      PATH_INFO       = 'PATH_INFO'
-      REQUEST_METHOD  = 'REQUEST_METHOD'
-      QUERY_STRING    = 'QUERY_STRING'
-      CONTENT_TYPE    = 'Content-Type'
-
-      GET     = 'GET'
-      POST    = 'POST'
-      PUT     = 'PUT'
-      PATCH   = 'PATCH'
-      DELETE  = 'DELETE'
-      HEAD    = 'HEAD'
-      OPTIONS = 'OPTIONS'
-
-      SUPPORTED_METHODS = [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS].freeze
-      SUPPORTED_METHODS_WITHOUT_OPTIONS = Grape::Util::LazyObject.new { [GET, POST, PUT, PATCH, DELETE, HEAD].freeze }
-
-      HTTP_ACCEPT_VERSION    = 'HTTP_ACCEPT_VERSION'
-      X_CASCADE              = 'X-Cascade'
+      HTTP_ACCEPT_VERSION = 'HTTP_ACCEPT_VERSION'
+      HTTP_ACCEPT = 'HTTP_ACCEPT'
       HTTP_TRANSFER_ENCODING = 'HTTP_TRANSFER_ENCODING'
-      HTTP_ACCEPT            = 'HTTP_ACCEPT'
+      HTTP_VERSION = 'HTTP_VERSION'
 
-      FORMAT                 = 'format'
+      ALLOW = 'Allow'
+      LOCATION = 'Location'
+      X_CASCADE = 'X-Cascade'
+      TRANSFER_ENCODING = 'Transfer-Encoding'
 
-      HTTP_HEADERS = Grape::Util::LazyObject.new do
+      SUPPORTED_METHODS = [
+        Rack::GET,
+        Rack::POST,
+        Rack::PUT,
+        Rack::PATCH,
+        Rack::DELETE,
+        Rack::HEAD,
+        Rack::OPTIONS
+      ].freeze
+
+      SUPPORTED_METHODS_WITHOUT_OPTIONS = (SUPPORTED_METHODS - [Rack::OPTIONS]).freeze
+
+      HTTP_HEADERS = Grape::Util::Lazy::Object.new do
         common_http_headers = %w[
           Version
           Host

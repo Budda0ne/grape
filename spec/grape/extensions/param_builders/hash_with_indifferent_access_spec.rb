@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
-
 describe Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuilder do
   subject { Class.new(Grape::API) }
 
@@ -10,10 +8,10 @@ describe Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuild
   end
 
   describe 'in an endpoint' do
-    context '#params' do
+    describe '#params' do
       before do
         subject.params do
-          build_with Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuilder
+          build_with Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuilder # rubocop:disable RSpec/DescribedClass
         end
 
         subject.get do
@@ -21,7 +19,7 @@ describe Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuild
         end
       end
 
-      it 'should be of type Hash' do
+      it 'is of type Hash' do
         get '/'
         expect(last_response.status).to eq(200)
         expect(last_response.body).to eq('ActiveSupport::HashWithIndifferentAccess')
@@ -31,10 +29,10 @@ describe Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuild
 
   describe 'in an api' do
     before do
-      subject.send(:include, Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuilder)
+      subject.include Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuilder # rubocop:disable RSpec/DescribedClass
     end
 
-    context '#params' do
+    describe '#params' do
       before do
         subject.get do
           params.class
@@ -49,7 +47,7 @@ describe Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuild
 
       it 'parses sub hash params' do
         subject.params do
-          build_with Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuilder
+          build_with Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuilder # rubocop:disable RSpec/DescribedClass
 
           optional :a, type: Hash do
             optional :b, type: Hash do
@@ -70,7 +68,7 @@ describe Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuild
 
       it 'params are indifferent to symbol or string keys' do
         subject.params do
-          build_with Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuilder
+          build_with Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuilder # rubocop:disable RSpec/DescribedClass
           optional :a, type: Hash do
             optional :b, type: Hash do
               optional :c, type: String
@@ -90,7 +88,7 @@ describe Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuild
 
       it 'responds to string keys' do
         subject.params do
-          build_with Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuilder
+          build_with Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuilder # rubocop:disable RSpec/DescribedClass
           requires :a, type: String
         end
 
@@ -102,6 +100,35 @@ describe Grape::Extensions::ActiveSupport::HashWithIndifferentAccess::ParamBuild
         expect(last_response.status).to eq(200)
         expect(last_response.body).to eq('["bar", "bar"]')
       end
+    end
+
+    it 'does not overwrite route_param with a regular param if they have same name' do
+      subject.namespace :route_param do
+        route_param :foo do
+          get { params.to_json }
+        end
+      end
+
+      get '/route_param/bar', foo: 'baz'
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to eq('{"foo":"bar"}')
+    end
+
+    it 'does not overwrite route_param with a defined regular param if they have same name' do
+      subject.namespace :route_param do
+        params do
+          requires :foo, type: String
+        end
+        route_param :foo do
+          get do
+            [params[:foo], params['foo']]
+          end
+        end
+      end
+
+      get '/route_param/bar', foo: 'baz'
+      expect(last_response.status).to eq(200)
+      expect(last_response.body).to eq('["bar", "bar"]')
     end
   end
 end

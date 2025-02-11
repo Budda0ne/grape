@@ -1,11 +1,10 @@
 # frozen_string_literal: true
 
-require 'grape/middleware/base'
-
 module Grape
   module Middleware
     class Formatter < Base
       CHUNKED = 'chunked'
+      FORMAT = 'format'
 
       def default_options
         {
@@ -22,10 +21,11 @@ module Grape
 
       def after
         return unless @app_response
+
         status, headers, bodies = *@app_response
 
         if Rack::Utils::STATUS_WITH_NO_ENTITY_BODY.include?(status)
-          @app_response
+          [status, headers, []]
         else
           build_formatted_response(status, headers, bodies)
         end
@@ -53,8 +53,8 @@ module Grape
       end
 
       def fetch_formatter(headers, options)
-        api_format = mime_types[headers[Grape::Http::Headers::CONTENT_TYPE]] || env[Grape::Env::API_FORMAT]
-        Grape::Formatter.formatter_for(api_format, **options)
+        api_format = env.fetch(Grape::Env::API_FORMAT) { mime_types[headers[Rack::CONTENT_TYPE]] }
+        Grape::Formatter.formatter_for(api_format, options[:formatters])
       end
 
       # Set the content type header for the API format if it is not already present.
@@ -62,10 +62,10 @@ module Grape
       # @param headers [Hash]
       # @return [Hash]
       def ensure_content_type(headers)
-        if headers[Grape::Http::Headers::CONTENT_TYPE]
+        if headers[Rack::CONTENT_TYPE]
           headers
         else
-          headers.merge(Grape::Http::Headers::CONTENT_TYPE => content_type_for(env[Grape::Env::API_FORMAT]))
+          headers.merge(Rack::CONTENT_TYPE => content_type_for(env[Grape::Env::API_FORMAT]))
         end
       end
 
@@ -79,16 +79,16 @@ module Grape
           (request.post? || request.put? || request.patch? || request.delete?) &&
           (!request.form_data? || !request.media_type) &&
           !request.parseable_data? &&
-          (request.content_length.to_i > 0 || request.env[Grape::Http::Headers::HTTP_TRANSFER_ENCODING] == CHUNKED)
+          (request.content_length.to_i.positive? || request.env[Grape::Http::Headers::HTTP_TRANSFER_ENCODING] == CHUNKED)
 
-        return unless (input = env[Grape::Env::RACK_INPUT])
+        return unless (input = env[Rack::RACK_INPUT])
 
-        input.rewind
+        rewind_input input
         body = env[Grape::Env::API_REQUEST_INPUT] = input.read
         begin
           read_rack_input(body) if body && !body.empty?
         ensure
-          input.rewind
+          rewind_input input
         end
       end
 
@@ -96,20 +96,18 @@ module Grape
       def read_rack_input(body)
         fmt = request.media_type ? mime_types[request.media_type] : options[:default_format]
 
-        unless content_type_for(fmt)
-          throw :error, status: 415, message: "The provided content-type '#{request.media_type}' is not supported."
-        end
-        parser = Grape::Parser.parser_for fmt, **options
+        throw :error, status: 415, message: "The provided content-type '#{request.media_type}' is not supported." unless content_type_for(fmt)
+        parser = Grape::Parser.parser_for fmt, options[:parsers]
         if parser
           begin
             body = (env[Grape::Env::API_REQUEST_BODY] = parser.call(body, env))
             if body.is_a?(Hash)
-              env[Grape::Env::RACK_REQUEST_FORM_HASH] = if env[Grape::Env::RACK_REQUEST_FORM_HASH]
-                                                          env[Grape::Env::RACK_REQUEST_FORM_HASH].merge(body)
-                                                        else
-                                                          body
-                                                        end
-              env[Grape::Env::RACK_REQUEST_FORM_INPUT] = env[Grape::Env::RACK_INPUT]
+              env[Rack::RACK_REQUEST_FORM_HASH] = if env.key?(Rack::RACK_REQUEST_FORM_HASH)
+                                                    env[Rack::RACK_REQUEST_FORM_HASH].merge(body)
+                                                  else
+                                                    body
+                                                  end
+              env[Rack::RACK_REQUEST_FORM_INPUT] = env[Rack::RACK_INPUT]
             end
           rescue Grape::Exceptions::Base => e
             raise e
@@ -142,9 +140,10 @@ module Grape
       end
 
       def format_from_params
-        fmt = Rack::Utils.parse_nested_query(env[Grape::Http::Headers::QUERY_STRING])[Grape::Http::Headers::FORMAT]
+        fmt = Rack::Utils.parse_nested_query(env[Rack::QUERY_STRING])[FORMAT]
         # avoid symbol memory leak on an unknown format
         return fmt.to_sym if content_type_for(fmt)
+
         fmt
       end
 
@@ -164,15 +163,19 @@ module Grape
             \w+/[\w+.-]+)     # eg application/vnd.example.myformat+xml
           (?:
            (?:;[^,]*?)?       # optionally multiple formats in a row
-           ;\s*q=([\d.]+)     # optional "quality" preference (eg q=0.5)
+           ;\s*q=([\w.]+)     # optional "quality" preference (eg q=0.5)
           )?
         }x
 
         vendor_prefix_pattern = /vnd\.[^+]+\+/
 
         accept.scan(accept_into_mime_and_quality)
-              .sort_by { |_, quality_preference| -quality_preference.to_f }
+              .sort_by { |_, quality_preference| -(quality_preference ? quality_preference.to_f : 1.0) }
               .flat_map { |mime, _| [mime, mime.sub(vendor_prefix_pattern, '')] }
+      end
+
+      def rewind_input(input)
+        input.rewind if input.respond_to?(:rewind)
       end
     end
   end

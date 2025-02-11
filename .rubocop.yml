@@ -1,6 +1,6 @@
 AllCops:
   NewCops: enable
-  TargetRubyVersion: 2.4
+  TargetRubyVersion: 2.7
   SuggestExtensions: false
   Exclude:
     - vendor/**/*
@@ -8,8 +8,16 @@ AllCops:
 
 require:
   - rubocop-performance
+  - rubocop-rspec
 
 inherit_from: .rubocop_todo.yml
+
+Layout/LineLength:
+  Max: 215
+
+Lint/EmptyBlock:
+  Exclude:
+    - spec/**/*_spec.rb
 
 Style/Documentation:
   Enabled: false
@@ -20,15 +28,58 @@ Style/MultilineIfModifier:
 Style/RaiseArgs:
   Enabled: false
 
-Style/HashEachMethods:
-  Enabled: true
+Style/RedundantArrayConstructor:
+  Enabled: false  # doesn't work well with params definition
 
-Style/HashTransformKeys:
-  Enabled: true
-
-Style/HashTransformValues:
-  Enabled: true
+Metrics/AbcSize:
+  Max: 45
 
 Metrics/BlockLength:
+  Max: 30
   Exclude:
     - spec/**/*_spec.rb
+
+Metrics/ClassLength:
+  Max: 305
+
+Metrics/CyclomaticComplexity:
+  Max: 15
+
+Metrics/ParameterLists:
+  MaxOptionalParameters: 4
+
+Metrics/MethodLength:
+  Max: 32
+
+Metrics/ModuleLength:
+  Max: 220
+
+Metrics/PerceivedComplexity:
+  Max: 15
+
+RSpec/ExampleLength:
+  Max: 60
+
+RSpec/NestedGroups:
+  Max: 6
+
+RSpec/SpecFilePathFormat:
+  Enabled: false
+
+RSpec/SpecFilePathSuffix:
+  Enabled: true
+
+RSpec/MultipleExpectations:
+  Enabled: false
+
+RSpec/NamedSubject:
+  Enabled: false
+
+RSpec/MultipleMemoizedHelpers:
+  Max: 11
+
+RSpec/ContextWording:
+  Enabled: false
+
+RSpec/MessageSpies:
+  EnforcedStyle: receive

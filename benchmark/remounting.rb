@@ -5,7 +5,7 @@ require 'grape'
 require 'benchmark/memory'
 
 class VotingApi < Grape::API
-  logger Logger.new(STDOUT)
+  logger Logger.new($stdout)
 
   helpers do
     def logger
@@ -28,7 +28,7 @@ class CommentAPI < Grape::API
   mount VotingApi
 end
 
-env = Rack::MockRequest.env_for('/votes', method: 'GET')
+env = Rack::MockRequest.env_for('/votes', method: Rack::GET)
 
 Benchmark.memory do |api|
   calls = 1000

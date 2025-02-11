@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'active_support/concern'
-
 module Grape
   module DSL
     module RequestResponse
@@ -19,17 +17,16 @@ module Grape
         # Specify the format for the API's serializers.
         # May be `:json`, `:xml`, `:txt`, etc.
         def format(new_format = nil)
-          if new_format
-            namespace_inheritable(:format, new_format.to_sym)
-            # define the default error formatters
-            namespace_inheritable(:default_error_formatter, Grape::ErrorFormatter.formatter_for(new_format, **{}))
-            # define a single mime type
-            mime_type = content_types[new_format.to_sym]
-            raise Grape::Exceptions::MissingMimeType.new(new_format) unless mime_type
-            namespace_stackable(:content_types, new_format.to_sym => mime_type)
-          else
-            namespace_inheritable(:format)
-          end
+          return namespace_inheritable(:format) unless new_format
+
+          symbolic_new_format = new_format.to_sym
+          namespace_inheritable(:format, symbolic_new_format)
+          namespace_inheritable(:default_error_formatter, Grape::ErrorFormatter.formatter_for(symbolic_new_format))
+
+          content_type = content_types[symbolic_new_format]
+          raise Grape::Exceptions::MissingMimeType.new(new_format) unless content_type
+
+          namespace_stackable(:content_types, symbolic_new_format => content_type)
         end
 
         # Specify a custom formatter for a content-type.
@@ -44,12 +41,10 @@ module Grape
 
         # Specify a default error formatter.
         def default_error_formatter(new_formatter_name = nil)
-          if new_formatter_name
-            new_formatter = Grape::ErrorFormatter.formatter_for(new_formatter_name, **{})
-            namespace_inheritable(:default_error_formatter, new_formatter)
-          else
-            namespace_inheritable(:default_error_formatter)
-          end
+          return namespace_inheritable(:default_error_formatter) unless new_formatter_name
+
+          new_formatter = Grape::ErrorFormatter.formatter_for(new_formatter_name)
+          namespace_inheritable(:default_error_formatter, new_formatter)
         end
 
         def error_formatter(format, options)
@@ -102,22 +97,22 @@ module Grape
         def rescue_from(*args, &block)
           if args.last.is_a?(Proc)
             handler = args.pop
-          elsif block_given?
+          elsif block
             handler = block
           end
 
           options = args.extract_options!
-          if block_given? && options.key?(:with)
-            raise ArgumentError, 'both :with option and block cannot be passed'
-          end
+          raise ArgumentError, 'both :with option and block cannot be passed' if block && options.key?(:with)
+
           handler ||= extract_with(options)
 
           if args.include?(:all)
             namespace_inheritable(:rescue_all, true)
-            namespace_inheritable :all_rescue_handler, handler
+            namespace_inheritable(:all_rescue_handler, handler)
           elsif args.include?(:grape_exceptions)
             namespace_inheritable(:rescue_all, true)
             namespace_inheritable(:rescue_grape_exceptions, true)
+            namespace_inheritable(:grape_exceptions_rescue_handler, handler)
           else
             handler_type =
               case options[:rescue_subclasses]
@@ -127,7 +122,7 @@ module Grape
                 :base_only_rescue_handlers
               end
 
-            namespace_reverse_stackable handler_type, Hash[args.map { |arg| [arg, handler] }]
+            namespace_reverse_stackable(handler_type, args.to_h { |arg| [arg, handler] })
           end
 
           namespace_stackable(:rescue_options, options)
@@ -154,7 +149,8 @@ module Grape
         # @param model_class [Class] The model class that will be represented.
         # @option options [Class] :with The entity class that will represent the model.
         def represent(model_class, options)
-          raise Grape::Exceptions::InvalidWithOptionForRepresent.new unless options[:with] && options[:with].is_a?(Class)
+          raise Grape::Exceptions::InvalidWithOptionForRepresent.new unless options[:with].is_a?(Class)
+
           namespace_stackable(:representations, model_class => options[:with])
         end
 
@@ -162,9 +158,11 @@ module Grape
 
         def extract_with(options)
           return unless options.key?(:with)
+
           with_option = options.delete(:with)
           return with_option if with_option.instance_of?(Proc)
           return with_option.to_sym if with_option.instance_of?(Symbol) || with_option.instance_of?(String)
+
           raise ArgumentError, "with: #{with_option.class}, expected Symbol, String or Proc"
         end
       end

@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'active_support/concern'
-
 module Grape
   module DSL
     # Defines DSL methods, meant to be applied to a ParamsScope, which define
@@ -64,7 +62,12 @@ module Grape
           params_block = named_params.fetch(name) do
             raise "Params :#{name} not found!"
           end
-          instance_exec(options, &params_block)
+
+          if options.empty?
+            instance_exec(options, &params_block)
+          else
+            instance_exec(**options, &params_block)
+          end
         end
       end
       alias use_scope use
@@ -127,13 +130,13 @@ module Grape
 
         opts = attrs.extract_options!.clone
         opts[:presence] = { value: true, message: opts[:message] }
-        opts = @group.merge(opts) if instance_variable_defined?(:@group) && @group
+        opts = @group.deep_merge(opts) if instance_variable_defined?(:@group) && @group
 
         if opts[:using]
           require_required_and_optional_fields(attrs.first, opts)
         else
           validate_attributes(attrs, opts, &block)
-          block_given? ? new_scope(orig_attrs, &block) : push_declared_params(attrs, **opts.slice(:as))
+          block ? new_scope(orig_attrs, &block) : push_declared_params(attrs, opts.slice(:as))
         end
       end
 
@@ -146,12 +149,12 @@ module Grape
 
         opts = attrs.extract_options!.clone
         type = opts[:type]
-        opts = @group.merge(opts) if instance_variable_defined?(:@group) && @group
+        opts = @group.deep_merge(opts) if instance_variable_defined?(:@group) && @group
 
         # check type for optional parameter group
-        if attrs && block_given?
-          raise Grape::Exceptions::MissingGroupTypeError.new if type.nil?
-          raise Grape::Exceptions::UnsupportedGroupTypeError.new unless Grape::Validations::Types.group?(type)
+        if attrs && block
+          raise Grape::Exceptions::MissingGroupType if type.nil?
+          raise Grape::Exceptions::UnsupportedGroupType unless Grape::Validations::Types.group?(type)
         end
 
         if opts[:using]
@@ -159,7 +162,7 @@ module Grape
         else
           validate_attributes(attrs, opts, &block)
 
-          block_given? ? new_scope(orig_attrs, true, &block) : push_declared_params(attrs, **opts.slice(:as))
+          block ? new_scope(orig_attrs, true, &block) : push_declared_params(attrs, opts.slice(:as))
         end
       end
 
@@ -167,7 +170,8 @@ module Grape
       # @param (see #requires)
       # @option (see #requires)
       def with(*attrs, &block)
-        new_group_scope(attrs.clone, &block)
+        new_group_attrs = [@group, attrs.clone.first].compact.reduce(&:deep_merge)
+        new_group_scope([new_group_attrs], &block)
       end
 
       # Disallow the given parameters to be present in the same request.
@@ -219,15 +223,15 @@ module Grape
         else
           # @declared_params also includes hashes of options and such, but those
           # won't be flattened out.
-          @declared_params.flatten.any? do |declared_param|
-            first_hash_key_or_param(declared_param) == param
+          @declared_params.flatten.any? do |declared_param_attr|
+            first_hash_key_or_param(declared_param_attr.key) == param
           end
         end
       end
 
       alias group requires
 
-      class EmptyOptionalValue; end
+      class EmptyOptionalValue; end # rubocop:disable Lint/EmptyClass
 
       def map_params(params, element, is_array = false)
         if params.is_a?(Array)

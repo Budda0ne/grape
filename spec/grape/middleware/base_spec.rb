@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
-
 describe Grape::Middleware::Base do
-  subject { Grape::Middleware::Base.new(blank_app) }
+  subject { described_class.new(blank_app) }
+
   let(:blank_app) { ->(_) { [200, {}, 'Hi there.'] } }
 
   before do
@@ -20,6 +19,8 @@ describe Grape::Middleware::Base do
   end
 
   context 'callbacks' do
+    after { subject.call!({}) }
+
     it 'calls #before' do
       expect(subject).to receive(:before)
     end
@@ -27,8 +28,6 @@ describe Grape::Middleware::Base do
     it 'calls #after' do
       expect(subject).to receive(:after)
     end
-
-    after { subject.call!({}) }
   end
 
   context 'callbacks on error' do
@@ -58,7 +57,7 @@ describe Grape::Middleware::Base do
     context 'with patched warnings' do
       before do
         @warnings = warnings = []
-        allow_any_instance_of(Grape::Middleware::Base).to receive(:warn) { |m| warnings << m }
+        allow(subject).to receive(:warn) { |m| warnings << m }
         allow(subject).to receive(:after).and_raise(StandardError)
       end
 
@@ -71,53 +70,63 @@ describe Grape::Middleware::Base do
 
   it 'is able to access the response' do
     subject.call({})
-    expect(subject.response).to be_kind_of(Rack::Response)
+    expect(subject.response).to be_a(Rack::Response)
   end
 
   describe '#response' do
-    subject { Grape::Middleware::Base.new(response) }
+    subject do
+      described_class.new(response)
+    end
 
-    context Array do
+    before { subject.call({}) }
+
+    context 'when Array' do
+      let(:rack_response) { Rack::Response.new('test', 204, abc: 1) }
       let(:response) { ->(_) { [204, { abc: 1 }, 'test'] } }
 
       it 'status' do
-        subject.call({})
         expect(subject.response.status).to eq(204)
       end
 
       it 'body' do
-        subject.call({})
         expect(subject.response.body).to eq(['test'])
       end
 
       it 'header' do
-        subject.call({})
-        expect(subject.response.header).to have_key(:abc)
+        expect(subject.response.headers).to have_key(:abc)
+      end
+
+      it 'returns the memoized Rack::Response instance' do
+        allow(Rack::Response).to receive(:new).and_return(rack_response)
+        expect(subject.response).to eq(rack_response)
       end
     end
 
-    context Rack::Response do
-      let(:response) { ->(_) { Rack::Response.new('test', 204, abc: 1) } }
+    context 'when Rack::Response' do
+      let(:rack_response) { Rack::Response.new('test', 204, abc: 1) }
+      let(:response) { ->(_) { rack_response } }
 
       it 'status' do
-        subject.call({})
         expect(subject.response.status).to eq(204)
       end
 
       it 'body' do
-        subject.call({})
         expect(subject.response.body).to eq(['test'])
       end
 
       it 'header' do
-        subject.call({})
-        expect(subject.response.header).to have_key(:abc)
+        expect(subject.response.headers).to have_key(:abc)
+      end
+
+      it 'returns the memoized Rack::Response instance' do
+        expect(subject.response).to eq(rack_response)
       end
     end
   end
 
   describe '#context' do
-    subject { Grape::Middleware::Base.new(blank_app) }
+    subject { described_class.new(blank_app) }
+
     it 'allows access to response context' do
       subject.call(Grape::Env::API_ENDPOINT => { header: 'some header' })
       expect(subject.context).to eq(header: 'some header')
@@ -126,12 +135,12 @@ describe Grape::Middleware::Base do
 
   context 'options' do
     it 'persists options passed at initialization' do
-      expect(Grape::Middleware::Base.new(blank_app, abc: true).options[:abc]).to be true
+      expect(described_class.new(blank_app, abc: true).options[:abc]).to be true
     end
 
     context 'defaults' do
-      module BaseSpec
-        class ExampleWare < Grape::Middleware::Base
+      let(:example_ware) do
+        Class.new(Grape::Middleware::Base) do
           def default_options
             { monkey: true }
           end
@@ -139,18 +148,18 @@ describe Grape::Middleware::Base do
       end
 
       it 'persists the default options' do
-        expect(BaseSpec::ExampleWare.new(blank_app).options[:monkey]).to be true
+        expect(example_ware.new(blank_app).options[:monkey]).to be true
       end
 
       it 'overrides default options when provided' do
-        expect(BaseSpec::ExampleWare.new(blank_app, monkey: false).options[:monkey]).to be false
+        expect(example_ware.new(blank_app, monkey: false).options[:monkey]).to be false
       end
     end
   end
 
   context 'header' do
-    module HeaderSpec
-      class ExampleWare < Grape::Middleware::Base
+    let(:example_ware) do
+      Class.new(Grape::Middleware::Base) do
         def before
           header 'X-Test-Before', 'Hi'
         end
@@ -162,9 +171,11 @@ describe Grape::Middleware::Base do
       end
     end
 
-    def app
+    let(:app) do
+      context = self
+
       Rack::Builder.app do
-        use HeaderSpec::ExampleWare
+        use context.example_ware
         run ->(_) { [200, {}, ['Yeah']] }
       end
     end
@@ -177,8 +188,8 @@ describe Grape::Middleware::Base do
   end
 
   context 'header overwrite' do
-    module HeaderOverwritingSpec
-      class ExampleWare < Grape::Middleware::Base
+    let(:example_ware) do
+      Class.new(Grape::Middleware::Base) do
         def before
           header 'X-Test-Overwriting', 'Hi'
         end
@@ -188,8 +199,9 @@ describe Grape::Middleware::Base do
           nil
         end
       end
-
-      class API < Grape::API
+    end
+    let(:api) do
+      Class.new(Grape::API) do
         get('/') do
           header 'X-Test-Overwriting', 'Yeah'
           'Hello'
@@ -197,10 +209,12 @@ describe Grape::Middleware::Base do
       end
     end
 
-    def app
+    let(:app) do
+      context = self
+
       Rack::Builder.app do
-        use HeaderOverwritingSpec::ExampleWare
-        run HeaderOverwritingSpec::API.new
+        use context.example_ware
+        run context.api.new
       end
     end
 

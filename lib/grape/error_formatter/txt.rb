@@ -2,25 +2,19 @@
 
 module Grape
   module ErrorFormatter
-    module Txt
-      extend Base
-
-      class << self
-        def call(message, backtrace, options = {}, env = nil, original_exception = nil)
-          message = present(message, env)
-
-          result = message.is_a?(Hash) ? ::Grape::Json.dump(message) : message
-          rescue_options = options[:rescue_options] || {}
-          if rescue_options[:backtrace] && backtrace && !backtrace.empty?
-            result += "\r\n backtrace:"
-            result += backtrace.join("\r\n ")
+    class Txt < Base
+      def self.format_structured_message(structured_message)
+        message = structured_message[:message] || Grape::Json.dump(structured_message)
+        Array.wrap(message).tap do |final_message|
+          if structured_message.key?(:backtrace)
+            final_message << 'backtrace:'
+            final_message.concat(structured_message[:backtrace])
           end
-          if rescue_options[:original_exception] && original_exception
-            result += "\r\n original exception:"
-            result += "\r\n #{original_exception.inspect}"
+          if structured_message.key?(:original_exception)
+            final_message << 'original exception:'
+            final_message << structured_message[:original_exception]
           end
-          result
-        end
+        end.join("\r\n ")
       end
     end
   end

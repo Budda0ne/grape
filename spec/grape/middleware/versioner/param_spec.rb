@@ -1,22 +1,21 @@
 # frozen_string_literal: true
 
-require 'spec_helper'
-
 describe Grape::Middleware::Versioner::Param do
-  let(:app) { ->(env) { [200, env, env['api.version']] } }
+  subject { described_class.new(app, options) }
+
+  let(:app) { ->(env) { [200, env, env[Grape::Env::API_VERSION]] } }
   let(:options) { {} }
-  subject { Grape::Middleware::Versioner::Param.new(app, **options) }
 
   it 'sets the API version based on the default param (apiver)' do
     env = Rack::MockRequest.env_for('/awesome', params: { 'apiver' => 'v1' })
-    expect(subject.call(env)[1]['api.version']).to eq('v1')
+    expect(subject.call(env)[1][Grape::Env::API_VERSION]).to eq('v1')
   end
 
   it 'cuts (only) the version out of the params' do
     env = Rack::MockRequest.env_for('/awesome', params: { 'apiver' => 'v1', 'other_param' => '5' })
-    env['rack.request.query_hash'] = Rack::Utils.parse_nested_query(env['QUERY_STRING'])
-    expect(subject.call(env)[1]['rack.request.query_hash']['apiver']).to be_nil
-    expect(subject.call(env)[1]['rack.request.query_hash']['other_param']).to eq('5')
+    env[Rack::RACK_REQUEST_QUERY_HASH] = Rack::Utils.parse_nested_query(env[Rack::QUERY_STRING])
+    expect(subject.call(env)[1][Rack::RACK_REQUEST_QUERY_HASH]['apiver']).to be_nil
+    expect(subject.call(env)[1][Rack::RACK_REQUEST_QUERY_HASH]['other_param']).to eq('5')
   end
 
   it 'provides a nil version if no version is given' do
@@ -26,25 +25,29 @@ describe Grape::Middleware::Versioner::Param do
 
   context 'with specified parameter name' do
     let(:options) { { version_options: { parameter: 'v' } } }
+
     it 'sets the API version based on the custom parameter name' do
       env = Rack::MockRequest.env_for('/awesome', params: { 'v' => 'v1' })
-      expect(subject.call(env)[1]['api.version']).to eq('v1')
+      expect(subject.call(env)[1][Grape::Env::API_VERSION]).to eq('v1')
     end
+
     it 'does not set the API version based on the default param' do
       env = Rack::MockRequest.env_for('/awesome', params: { 'apiver' => 'v1' })
-      expect(subject.call(env)[1]['api.version']).to be_nil
+      expect(subject.call(env)[1][Grape::Env::API_VERSION]).to be_nil
     end
   end
 
   context 'with specified versions' do
     let(:options) { { versions: %w[v1 v2] } }
+
     it 'throws an error if a non-allowed version is specified' do
       env = Rack::MockRequest.env_for('/awesome', params: { 'apiver' => 'v3' })
       expect(catch(:error) { subject.call(env) }[:status]).to eq(404)
     end
+
     it 'allows versions that have been specified' do
       env = Rack::MockRequest.env_for('/awesome', params: { 'apiver' => 'v1' })
-      expect(subject.call(env)[1]['api.version']).to eq('v1')
+      expect(subject.call(env)[1][Grape::Env::API_VERSION]).to eq('v1')
     end
   end
 
@@ -55,6 +58,7 @@ describe Grape::Middleware::Versioner::Param do
         version_options: { using: :header }
       }
     end
+
     it 'returns a 200 (matches the first version found)' do
       env = Rack::MockRequest.env_for('/awesome', params: {})
       expect(subject.call(env).first).to eq(200)

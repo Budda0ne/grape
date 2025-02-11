@@ -23,6 +23,34 @@ git pull upstream master
 git checkout -b my-feature-branch
 ```
 
+### Docker
+
+If you're familiar with [Docker](https://www.docker.com/), you can run everything through the following command:
+
+```
+docker-compose run --rm --build grape <command_and_parameters>
+```
+
+About the execution process:
+ - displays Ruby, Rubygems, Bundle and Gemfile version when starting:
+    ```
+    ruby 3.2.2 (2023-03-30 revision e51014f9c0) [x86_64-linux-musl]
+    rubygems 3.4.12
+    Bundler version 2.4.1 (2022-12-24 commit f3175f033c)
+    Running default Gemfile
+    ```
+ - keeps the gems to the latest possible version
+ - executes under `bundle exec`
+
+Here are some examples:
+
+- running all specs `docker-compose run --rm --build grape rspec`
+- running rspec on a specific file `docker-compose run --rm --build grape rspec spec/:file_path`
+- running task `docker-compose run --rm --build grape rake <task_name>`
+- running rubocop `docker-compose run --rm --build grape rubocop`
+- running all specs on a specific ruby version (e.g 2.7.7) `RUBY_VERSION=2.7.7 docker-compose run --rm --build grape rspec`
+- running specs on a specific gemfile (e.g rails_7_0.gemfile) `docker-compose run -e GEMFILE=rails_7_0 --rm --build grape rspec`
+
 #### Bundle Install and Test
 
 Ensure that you can build the project and run tests.
@@ -35,6 +63,7 @@ bundle exec rake
 Run tests against all supported versions of Rails.
 
 ```
+gem install appraisal
 appraisal install
 appraisal rake spec
 ```
@@ -56,6 +85,8 @@ Make sure that `bundle exec rake` completes without errors.
 #### Write Documentation
 
 Document any external behavior in the [README](README.md).
+
+You should also document code as necessary, using current code as examples. This project uses [YARD](https://yardoc.org/). You can run and preview the docs locally by [installing `yard`](https://yardoc.org/), running `yard server --reload` and view the docs at http://localhost:8808.
 
 #### Update Changelog
 
@@ -114,11 +145,11 @@ git push origin my-feature-branch -f
 
 #### Check on Your Pull Request
 
-Go back to your pull request after a few minutes and see whether it passed muster with Travis-CI. Everything should look green, otherwise fix issues and amend your commit as described above.
+Go back to your pull request after a few minutes and see whether it passed muster with CI. Everything should look green, otherwise fix issues and amend your commit as described above.
 
 #### Be Patient
 
-It's likely that your change will not be merged and that the nitpicky maintainers will ask you to do more, or fix seemingly benign problems. Hang on there!
+It's likely that your change will not be merged and that the nitpicky maintainers will ask you to do more, or fix seemingly benign problems. Hang in there!
 
 #### Thank You
 
