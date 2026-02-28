@@ -3,8 +3,12 @@
 module Grape
   module Validations
     class ParamsScope
-      attr_accessor :element, :parent, :index
-      attr_reader :type, :params_meeting_dependency
+      attr_accessor :element, :parent
+      attr_reader :type, :nearest_array_ancestor
+
+      def qualifying_params
+        ParamScopeTracker.current&.qualifying_params(self)
+      end
 
       include Grape::DSL::Parameters
       include Grape::Validations::ParamsDocumentation
@@ -70,13 +74,12 @@ module Grape
         @type             = opts[:type]
         @group            = opts[:group]
         @dependent_on     = opts[:dependent_on]
-        @params_meeting_dependency = []
         @declared_params = []
-        @index = nil
 
         instance_eval(&block) if block
 
         configure_declared_params
+        @nearest_array_ancestor = find_nearest_array_ancestor
       end
 
       def configuration
@@ -100,8 +103,9 @@ module Grape
         return false if @parent.present? && !@parent.meets_dependency?(@parent.params(request_params), request_params)
 
         if params.is_a?(Array)
-          @params_meeting_dependency = params.flatten.filter { |param| meets_dependency?(param, request_params) }
-          return @params_meeting_dependency.present?
+          filtered = params.flatten.filter { |param| meets_dependency?(param, request_params) }
+          ParamScopeTracker.current&.store_qualifying_params(self, filtered)
+          return filtered.present?
         end
 
         meets_hash_dependency?(params)
@@ -133,13 +137,15 @@ module Grape
 
       # @return [String] the proper attribute name, with nesting considered.
       def full_name(name, index: nil)
+        tracker = ParamScopeTracker.current
         if nested?
           # Find our containing element's name, and append ours.
-          "#{@parent.full_name(@element)}#{brackets(index || @index)}#{brackets(name)}"
+          resolved_index = index || tracker&.index_for(self)
+          "#{@parent.full_name(@element)}#{brackets(resolved_index)}#{brackets(name)}"
         elsif lateral?
           # Find the name of the element as if it was at the same nesting level
           # as our parent. We need to forward our index upward to achieve this.
-          @parent.full_name(name, index: @index)
+          @parent.full_name(name, index: tracker&.index_for(self))
         else
           # We must be the root scope, so no prefix needed.
           name.to_s
@@ -172,10 +178,6 @@ module Grape
       #   be blank
       def required?
         !@optional
-      end
-
-      def reset_index
-        @index = nil
       end
 
       protected
@@ -327,6 +329,12 @@ module Grape
 
         # params were stored in settings, it can be cleaned from the params scope
         @declared_params = nil
+      end
+
+      def find_nearest_array_ancestor
+        scope = @parent
+        scope = scope.parent while scope && scope.type != Array
+        scope
       end
 
       def validates(attrs, validations)
